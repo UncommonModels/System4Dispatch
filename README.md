@@ -7,7 +7,7 @@ A browser-based **dispatch panel and throttle** for model railroads running **Op
 - **Throttles**: acquire any DCC address through an LCC command station (Traction protocol). You get speed, direction, F0–F28 and emergency stop.
 - **Layout editor** in the browser: paint track, assign blocks and turnouts, and enter event IDs. You can also *learn* an event ID by pressing a button on the layout.
 - A **built-in simulator**, so you can try everything without hardware.
-- Runs entirely in the browser (Rust → WebAssembly, built with [Dioxus](https://dioxuslabs.com)). The OpenLCB stack is [`rolcb`](../ROLCB).
+- Runs entirely in the browser (Rust → WebAssembly, built with [Dioxus](https://dioxuslabs.com)). The OpenLCB stack is [`rolcb`](https://github.com/UncommonModels/rolcb).
 
 ## Ways to connect
 
@@ -42,7 +42,7 @@ s4d-bridge --serial /dev/ttyACM0 --layout club-layout.json
 
 > Browsers block `ws://` connections from `https://` pages except to `localhost`. That's why the bridge serves its own copy of the app over plain http. Use the hosted (https) app for USB serial, and the bridge's URL for network connections.
 
-If you only need a hub without the web app, ROLCB also ships `rolcb-hub` (GridConnect TCP :12021 + WebSocket :12022).
+If you only need a hub without the web app, rolcb also ships `rolcb-hub` (GridConnect TCP :12021 + WebSocket :12022).
 
 ## Layout files
 
@@ -78,7 +78,7 @@ Layouts are stored in the browser. They can be exported and imported as files, o
 
 ## Building
 
-You need Rust, the `wasm32-unknown-unknown` target and the Dioxus CLI. ROLCB must be checked out next to this repo (`../ROLCB`).
+You need Rust, the `wasm32-unknown-unknown` target and the Dioxus CLI. [rolcb](https://github.com/UncommonModels/rolcb) must be checked out next to this repo (`../rolcb`).
 
 ```sh
 rustup target add wasm32-unknown-unknown

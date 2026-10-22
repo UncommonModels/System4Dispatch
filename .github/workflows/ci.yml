@@ -8,11 +8,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      # rolcb is a path dependency (../ROLCB), so check both repos out side by side.
+      # rolcb is a path dependency (../rolcb), so check both repos out side by side.
       - uses: actions/checkout@v4
         with: { path: System4Dispatch }
       - uses: actions/checkout@v4
-        with: { repository: "${{ github.repository_owner }}/ROLCB", path: ROLCB }
+        with: { repository: "${{ github.repository_owner }}/rolcb", path: rolcb }
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: wasm32-unknown-unknown, components: clippy }
       - uses: Swatinem/rust-cache@v2
