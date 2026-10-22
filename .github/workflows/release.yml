@@ -42,7 +42,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: System4Dispatch, key: "${{ matrix.name }}" }
       - uses: taiki-e/install-action@v2
+        if: runner.os != 'Linux'
         with: { tool: dioxus-cli@0.7.10 }
+      # The prebuilt dx needs glibc 2.39; build it here so the packages keep
+      # working on older distros (Ubuntu 22.04 / glibc 2.35).
+      - name: Install Dioxus CLI (from source)
+        if: runner.os == 'Linux'
+        run: cargo install dioxus-cli --version 0.7.10 --locked
       - name: Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -65,8 +71,9 @@ jobs:
         run: |
           mkdir -p out
           prefix="System4Dispatch-${VERSION}-${{ matrix.name }}"
-          shopt -s globstar nullglob
-          for f in dist/**/*.deb dist/**/*.rpm dist/**/*.AppImage dist/**/*.dmg dist/**/*.msi dist/**/*-setup.exe; do
+          # find, not bash globstar: macOS runners ship bash 3.2.
+          find dist -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' \
+              -o -name '*.msi' -o -name '*-setup.exe' \) -print | while read -r f; do
             case "$f" in
               *-setup.exe) cp "$f" "out/${prefix}-setup.exe" ;;
               *) cp "$f" "out/${prefix}.${f##*.}" ;;
