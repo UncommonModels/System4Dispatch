@@ -24,7 +24,7 @@ rustc-ice-*.txt
 #.idea/
 
 # Dioxus build output
-/dist
+/dist*/
 
 # Packaging build output
 /packaging/flatpak/app

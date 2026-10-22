@@ -85,7 +85,7 @@ GitHub Actions workflows live in `.github/workflows/`. Each one checks out `Syst
 |---|---|---|
 | **CI** (`ci.yml`) | pushes to `main`, pull requests | Installs the Linux desktop dependencies, runs `cargo test`, and runs Clippy with `-D warnings` for both the web (`wasm32-unknown-unknown`) and desktop builds. |
 | **Pages** (`pages.yml`) | pushes to `main`, manual | Builds the web app with `dx bundle --platform web --release --base-path <repo name>` and deploys it to GitHub Pages, served at <https://www.uncommonmodels.com/System4Dispatch/>. |
-| **Release** (`release.yml`) | `v*` tags, manual | Bundles the desktop app on Linux x86_64, Linux arm64, macOS (arm64) and Windows x86_64, renames each installer with its platform prefix, uploads them as workflow artifacts, and on a tag attaches them to the GitHub release. |
+| **Release** (`release.yml`) | `v*` tags, manual | Builds every download listed in [Installing](install.md): desktop installers for Linux x86_64 (deb, rpm, AppImage), Linux arm64 (deb, rpm), macOS arm64 and x86_64 (dmg) and Windows (msi, setup.exe), a Flatpak, and a zip of the web app. On a tag it attaches them with `SHA256SUMS` to the GitHub release; a manual run only uploads workflow artifacts (a dry run). |
 | **Nightly** | nightly | Nightly builds are published as a GitHub pre-release tagged `nightly`, with an AppImage and a Flatpak bundle. |
 
 ### Making a release

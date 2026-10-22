@@ -3,7 +3,7 @@
 **System4Dispatch** is a dispatcher's panel and throttle for model railroads that run **OpenLCB**, the open standard that the NMRA publishes as **LCC** (Layout Command Control). It draws your track as a CTC-style diagram, shows which blocks are occupied as it happens, throws turnouts with a tap, and runs locomotives through an LCC command station.
 
 - **Web app:** <https://www.uncommonmodels.com/System4Dispatch/>. Nothing to install.
-- **Desktop app:** installers for Linux (x86_64 and arm64, including Raspberry Pi), macOS and Windows on the [releases page](https://github.com/UncommonModels/System4Dispatch/releases).
+- **Desktop app:** installers for Linux (deb, rpm, AppImage, Flatpak; x86_64 and arm64, including Raspberry Pi), macOS and Windows on the [releases page](https://github.com/UncommonModels/System4Dispatch/releases). See [Installing](install.md).
 - **Source code:** <https://github.com/UncommonModels/System4Dispatch> (MIT licence).
 
 ## What it does

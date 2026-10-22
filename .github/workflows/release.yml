@@ -1,5 +1,10 @@
-# On a version tag, bundle the desktop app for each platform and attach the
-# installers to a GitHub release.
+# Prebuilt System4Dispatch downloads.
+#
+# Pushing a tag like `v0.2.0` builds the desktop app for each platform (plus a
+# Flatpak and a self-hostable copy of the web app) and attaches everything,
+# with SHA256SUMS, to a GitHub release for that tag. Running the workflow by
+# hand builds the same files as workflow artifacts without publishing
+# anything, which is handy for testing.
 name: Release
 on:
   push:
@@ -11,40 +16,151 @@ permissions:
 
 jobs:
   desktop:
+    name: desktop (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-22.04, name: linux-x86_64 }
-          - { os: ubuntu-22.04-arm, name: linux-arm64 }
-          - { os: macos-latest, name: macos-arm64 }
-          - { os: windows-latest, name: windows-x86_64 }
+          - { os: ubuntu-22.04, name: linux-x86_64, types: "deb,rpm,appimage" }
+          # linuxdeploy (AppImage) is x86_64-only, so ARM gets deb and rpm.
+          - { os: ubuntu-22.04-arm, name: linux-arm64, types: "deb,rpm" }
+          - { os: macos-latest, name: macos-arm64, types: "dmg" }
+          - { os: macos-latest, name: macos-x86_64, types: "dmg", target: x86_64-apple-darwin }
+          - { os: windows-latest, name: windows-x86_64, types: "msi,nsis" }
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Version
+        shell: bash
+        # The tag for releases, dev-<sha> for manual test runs.
+        run: echo "VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}" | cut -c1-80 | sed -E 's/^(VERSION=dev-.{7}).*/\1/' >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with: { path: System4Dispatch }
       - uses: actions/checkout@v4
         with: { repository: "${{ github.repository_owner }}/rolcb", path: rolcb }
       - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "${{ matrix.target }}" }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: System4Dispatch, key: "${{ matrix.name }}" }
       - uses: taiki-e/install-action@v2
         with: { tool: dioxus-cli@0.7.10 }
       - name: Linux dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev libudev-dev libayatana-appindicator3-dev librsvg2-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev libudev-dev \
+            libayatana-appindicator3-dev librsvg2-dev libfuse2 file rpm
       - name: Bundle
         working-directory: System4Dispatch
         shell: bash
-        run: dx bundle --platform desktop --release -p system4dispatch --out-dir dist
+        run: |
+          target=()
+          [ -n "${{ matrix.target }}" ] && target=(--target "${{ matrix.target }}")
+          args=()
+          IFS=, read -ra types <<< "${{ matrix.types }}"
+          for t in "${types[@]}"; do args+=(--package-types "$t"); done
+          dx bundle -p system4dispatch --platform desktop --release "${target[@]}" "${args[@]}" --out-dir dist
       - name: Collect installers
         working-directory: System4Dispatch
         shell: bash
         run: |
-          mkdir -p release
-          find dist -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' \) \
-            -exec sh -c 'for f; do cp "$f" "release/${{ matrix.name }}-$(basename "$f")"; done' sh {} +
-          ls -la release
+          mkdir -p out
+          prefix="System4Dispatch-${VERSION}-${{ matrix.name }}"
+          shopt -s globstar nullglob
+          for f in dist/**/*.deb dist/**/*.rpm dist/**/*.AppImage dist/**/*.dmg dist/**/*.msi dist/**/*-setup.exe; do
+            case "$f" in
+              *-setup.exe) cp "$f" "out/${prefix}-setup.exe" ;;
+              *) cp "$f" "out/${prefix}.${f##*.}" ;;
+            esac
+          done
+          ls -la out
+          [ -n "$(ls out)" ] || { echo "no installers were produced"; exit 1; }
+      - name: Keep the app directory for the Flatpak
+        if: matrix.name == 'linux-x86_64'
+        working-directory: System4Dispatch
+        run: tar -C target/dx/system4dispatch/release/linux/app -czf app.tar.gz .
       - uses: actions/upload-artifact@v4
-        with: { name: "desktop-${{ matrix.name }}", path: System4Dispatch/release }
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with: { files: "System4Dispatch/release/*" }
+        with: { name: "desktop-${{ matrix.name }}", path: System4Dispatch/out/* }
+      - uses: actions/upload-artifact@v4
+        if: matrix.name == 'linux-x86_64'
+        with: { name: desktop-app-dir, path: System4Dispatch/app.tar.gz }
+
+  flatpak:
+    needs: desktop
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Version
+        shell: bash
+        # The tag for releases, dev-<sha> for manual test runs.
+        run: echo "VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}" | cut -c1-80 | sed -E 's/^(VERSION=dev-.{7}).*/\1/' >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: desktop-app-dir, path: packaging/flatpak }
+      - name: Unpack app
+        run: |
+          mkdir -p packaging/flatpak/app
+          tar -C packaging/flatpak/app -xzf packaging/flatpak/app.tar.gz
+          rm packaging/flatpak/app.tar.gz
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+      - name: Build Flatpak bundle
+        run: |
+          flatpak-builder --user --install-deps-from=flathub --force-clean --disable-rofiles-fuse \
+            --repo=repo build-dir packaging/flatpak/com.uncommonmodels.System4Dispatch.yml
+          mkdir -p out
+          flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            repo "out/System4Dispatch-${VERSION}-linux-x86_64.flatpak" com.uncommonmodels.System4Dispatch
+      - uses: actions/upload-artifact@v4
+        with: { name: flatpak, path: out/* }
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Version
+        shell: bash
+        # The tag for releases, dev-<sha> for manual test runs.
+        run: echo "VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}" | cut -c1-80 | sed -E 's/^(VERSION=dev-.{7}).*/\1/' >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with: { path: System4Dispatch }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/rolcb", path: rolcb }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: wasm32-unknown-unknown }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: System4Dispatch, key: web }
+      - uses: taiki-e/install-action@v2
+        with: { tool: dioxus-cli@0.7.10 }
+      - name: Build the web app (served from the site root)
+        working-directory: System4Dispatch
+        run: |
+          dx bundle -p system4dispatch --platform web --release
+          mkdir -p out
+          name="System4Dispatch-${VERSION}-web"
+          cp -r target/dx/system4dispatch/release/web/public "$name"
+          zip -qr "out/$name.zip" "$name"
+      - uses: actions/upload-artifact@v4
+        with: { name: web, path: System4Dispatch/out/* }
+
+  publish:
+    needs: [desktop, flatpak, web]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, pattern: "{desktop-linux-*,desktop-macos-*,desktop-windows-*,flatpak,web}", merge-multiple: true }
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "System4Dispatch $TAG" --generate-notes
+          fi

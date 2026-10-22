@@ -22,7 +22,17 @@ All connections speak **GridConnect**, the text form of LCC's CAN frames.
 | **Simulator** | ✓ (default) | ✓ |
 
 - **Web app:** https://www.uncommonmodels.com/System4Dispatch/. You can also install it as a PWA so it works offline.
-- **Desktop app:** download from the [releases](https://github.com/UncommonModels/System4Dispatch/releases). There are installers for Linux (x86_64, arm64 / Raspberry Pi), macOS and Windows.
+- **Desktop app:** download from the [releases page](https://github.com/UncommonModels/System4Dispatch/releases):
+
+  | Platform | Download |
+  |---|---|
+  | Linux x86_64 | `.deb`, `.rpm`, `.AppImage` or `.flatpak` |
+  | Linux arm64 (Raspberry Pi 4/5, 64-bit OS) | `.deb` or `.rpm` |
+  | macOS | `.dmg` (Apple silicon or Intel) |
+  | Windows | `.msi` or `-setup.exe` |
+  | Self-hosted web app | `-web.zip` |
+
+  Per-platform instructions are in the [Installing](https://www.uncommonmodels.com/System4Dispatch/docs/install.html) chapter of the docs. Nightly snapshots are on the [`nightly` pre-release](https://github.com/UncommonModels/System4Dispatch/releases/tag/nightly).
 
 Each running copy is its own OpenLCB node with a unique Node ID, generated on first run and editable in Settings. Several dispatchers and throttles can run at once.
 
@@ -89,7 +99,7 @@ crates/core   layout model, Dispatcher (OpenLCB state machine), Simulator; host-
 crates/app    the Dioxus app; src/platform/{web,desktop}.rs hold the per-platform links and storage
 ```
 
-GitHub Actions run the tests, publish the web app and the docs to GitHub Pages, attach desktop installers to tagged releases, and publish a nightly pre-release (tag `nightly`) with an AppImage and a Flatpak bundle. Build the Flatpak locally with the commands at the top of [`packaging/flatpak/com.uncommonmodels.System4Dispatch.yml`](packaging/flatpak/com.uncommonmodels.System4Dispatch.yml).
+GitHub Actions run the tests, publish the web app and the docs to GitHub Pages, attach installers for every platform (plus a Flatpak and a self-hostable web app) to tagged releases, and publish a nightly pre-release (tag `nightly`) with an AppImage and a Flatpak bundle. Build the Flatpak locally with the commands at the top of [`packaging/flatpak/com.uncommonmodels.System4Dispatch.yml`](packaging/flatpak/com.uncommonmodels.System4Dispatch.yml).
 
 ## License
 

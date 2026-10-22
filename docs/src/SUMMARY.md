@@ -4,6 +4,7 @@
 
 # Using System4Dispatch
 
+- [Installing](install.md)
 - [Getting started](getting-started.md)
 - [Connecting to your layout](connecting.md)
 - [The dispatch panel](panel.md)
