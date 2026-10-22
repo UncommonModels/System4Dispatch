@@ -1,0 +1,20 @@
+[package]
+name = "s4d-bridge"
+description = "System4Dispatch bridge: serves the web app and relays OpenLCB GridConnect between browsers, TCP hubs and USB adapters"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rolcb = { workspace = true, features = ["hub", "serial"] }
+s4d-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "fs", "signal", "time"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+clap = { version = "4.6", features = ["derive"] }
+rust-embed = { version = "8.13", features = ["mime-guess"] }
+
+[dev-dependencies]
+tokio-tungstenite = "0.30"

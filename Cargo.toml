@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "crates/app", "crates/bridge"]
+# `cargo test` / `cargo build` on the host skip the WASM app; build it with `dx`.
+default-members = ["crates/core", "crates/bridge"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/uncommonmodels/System4Dispatch"
+
+[workspace.dependencies]
+rolcb = { path = "../ROLCB", default-features = false, features = ["std", "serde"] }
+s4d-core = { path = "crates/core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"

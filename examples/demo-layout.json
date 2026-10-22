@@ -1,0 +1,497 @@
+{
+  "version": 1,
+  "name": "Hilltown Subdivision (demo)",
+  "grid": {
+    "cols": 32,
+    "rows": 12
+  },
+  "blocks": [
+    {
+      "id": "B1",
+      "name": "West Main",
+      "occupied_event": "05.01.01.01.22.00.00.10",
+      "clear_event": "05.01.01.01.22.00.00.11"
+    },
+    {
+      "id": "B2",
+      "name": "Hilltown Main",
+      "occupied_event": "05.01.01.01.22.00.00.12",
+      "clear_event": "05.01.01.01.22.00.00.13"
+    },
+    {
+      "id": "B3",
+      "name": "Hilltown Siding",
+      "occupied_event": "05.01.01.01.22.00.00.14",
+      "clear_event": "05.01.01.01.22.00.00.15"
+    },
+    {
+      "id": "B4",
+      "name": "East Main",
+      "occupied_event": "05.01.01.01.22.00.00.16",
+      "clear_event": "05.01.01.01.22.00.00.17"
+    },
+    {
+      "id": "B5",
+      "name": "Yard",
+      "occupied_event": "05.01.01.01.22.00.00.18",
+      "clear_event": "05.01.01.01.22.00.00.19"
+    }
+  ],
+  "turnouts": [
+    {
+      "id": "T1",
+      "name": "Hilltown West",
+      "normal_event": "05.01.01.01.22.00.01.00",
+      "reverse_event": "05.01.01.01.22.00.01.01",
+      "feedback": {
+        "normal_event": "05.01.01.01.22.00.02.00",
+        "reverse_event": "05.01.01.01.22.00.02.01"
+      }
+    },
+    {
+      "id": "T2",
+      "name": "Hilltown East",
+      "normal_event": "05.01.01.01.22.00.01.02",
+      "reverse_event": "05.01.01.01.22.00.01.03",
+      "feedback": {
+        "normal_event": "05.01.01.01.22.00.02.02",
+        "reverse_event": "05.01.01.01.22.00.02.03"
+      }
+    },
+    {
+      "id": "T3",
+      "name": "Yard Lead",
+      "normal_event": "05.01.01.01.22.00.01.04",
+      "reverse_event": "05.01.01.01.22.00.01.05"
+    }
+  ],
+  "elements": [
+    {
+      "type": "track",
+      "x": 1,
+      "y": 6,
+      "shape": "bumper",
+      "rot": 4,
+      "block": "B1"
+    },
+    {
+      "type": "track",
+      "x": 2,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B1"
+    },
+    {
+      "type": "track",
+      "x": 3,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B1"
+    },
+    {
+      "type": "track",
+      "x": 4,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B1"
+    },
+    {
+      "type": "track",
+      "x": 5,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B1"
+    },
+    {
+      "type": "track",
+      "x": 6,
+      "y": 6,
+      "shape": "turnout_left",
+      "rot": 0,
+      "block": "B2",
+      "turnout": "T1"
+    },
+    {
+      "type": "track",
+      "x": 7,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 8,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 9,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 10,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 11,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 12,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 13,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 14,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 15,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 16,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 17,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 18,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 19,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 20,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 21,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B2"
+    },
+    {
+      "type": "track",
+      "x": 22,
+      "y": 6,
+      "shape": "turnout_right",
+      "rot": 4,
+      "block": "B2",
+      "turnout": "T2"
+    },
+    {
+      "type": "track",
+      "x": 7,
+      "y": 5,
+      "shape": "curve",
+      "rot": 4,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 8,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 9,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 10,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 11,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 12,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 13,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 14,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 15,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 16,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 17,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 18,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 19,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 20,
+      "y": 5,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 21,
+      "y": 5,
+      "shape": "curve",
+      "rot": 5,
+      "block": "B3"
+    },
+    {
+      "type": "track",
+      "x": 23,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B4"
+    },
+    {
+      "type": "track",
+      "x": 24,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B4"
+    },
+    {
+      "type": "track",
+      "x": 25,
+      "y": 6,
+      "shape": "turnout_right",
+      "rot": 0,
+      "block": "B4",
+      "turnout": "T3"
+    },
+    {
+      "type": "track",
+      "x": 26,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B4"
+    },
+    {
+      "type": "track",
+      "x": 27,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B4"
+    },
+    {
+      "type": "track",
+      "x": 28,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B4"
+    },
+    {
+      "type": "track",
+      "x": 29,
+      "y": 6,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B4"
+    },
+    {
+      "type": "track",
+      "x": 30,
+      "y": 6,
+      "shape": "bumper",
+      "rot": 0,
+      "block": "B4"
+    },
+    {
+      "type": "track",
+      "x": 26,
+      "y": 7,
+      "shape": "curve",
+      "rot": 1,
+      "block": "B5"
+    },
+    {
+      "type": "track",
+      "x": 27,
+      "y": 7,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B5"
+    },
+    {
+      "type": "track",
+      "x": 28,
+      "y": 7,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B5"
+    },
+    {
+      "type": "track",
+      "x": 29,
+      "y": 7,
+      "shape": "straight",
+      "rot": 0,
+      "block": "B5"
+    },
+    {
+      "type": "track",
+      "x": 30,
+      "y": 7,
+      "shape": "bumper",
+      "rot": 0,
+      "block": "B5"
+    },
+    {
+      "type": "label",
+      "x": 12,
+      "y": 3,
+      "text": "Hilltown"
+    },
+    {
+      "type": "label",
+      "x": 1,
+      "y": 4,
+      "text": "West"
+    },
+    {
+      "type": "label",
+      "x": 28,
+      "y": 4,
+      "text": "East"
+    },
+    {
+      "type": "label",
+      "x": 27,
+      "y": 9,
+      "text": "Yard"
+    }
+  ]
+}

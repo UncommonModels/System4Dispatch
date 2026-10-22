@@ -1,0 +1,21 @@
+[package]
+name = "system4dispatch"
+description = "System4Dispatch: browser-based OpenLCB dispatch panel and throttle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dioxus = { version = "0.7.10" }
+s4d-core.workspace = true
+rolcb.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+futures = "0.3"
+gloo-timers = { version = "0.3", features = ["futures"] }
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Storage", "Navigator"] }
+
+[features]
+default = ["web"]
+web = ["dioxus/web"]

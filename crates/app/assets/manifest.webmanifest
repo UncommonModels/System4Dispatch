@@ -1,0 +1,10 @@
+{
+  "name": "System4Dispatch",
+  "short_name": "Dispatch",
+  "description": "OpenLCB / LCC dispatch panel and throttle",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#14181c",
+  "theme_color": "#14181c",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

@@ -1,0 +1,11 @@
+[package]
+name = "s4d-core"
+description = "System4Dispatch core: layout model, dispatcher state and simulator over rolcb"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rolcb.workspace = true
+serde.workspace = true
+serde_json.workspace = true

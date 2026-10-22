@@ -1,0 +1,40 @@
+# Publishes the web app to GitHub Pages: https://<owner>.github.io/System4Dispatch/
+name: Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency: { group: pages, cancel-in-progress: true }
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: System4Dispatch }
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/ROLCB", path: ROLCB }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: wasm32-unknown-unknown }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: System4Dispatch }
+      - uses: taiki-e/install-action@v2
+        with: { tool: dioxus-cli@0.7.10 }
+      - name: Build web app
+        working-directory: System4Dispatch
+        run: dx bundle --platform web --release -p system4dispatch --base-path "${{ github.event.repository.name }}"
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: System4Dispatch/target/dx/system4dispatch/release/web/public }
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: { name: github-pages, url: "${{ steps.deploy.outputs.page_url }}" }
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

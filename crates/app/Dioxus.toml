@@ -1,0 +1,8 @@
+[application]
+name = "system4dispatch"
+
+[web.app]
+title = "System4Dispatch"
+
+[web.watcher]
+watch_path = ["src", "assets", "../core/src"]
