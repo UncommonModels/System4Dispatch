@@ -1,10 +1,25 @@
 //! Throttles: acquire trains by DCC address and drive them over the OpenLCB
 //! Traction protocol.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 use s4d_core::{LinkState, Throttle, ThrottleState};
 
 use crate::bus::Bus;
+use crate::platform;
+
+/// Minimum time between SetSpeed commands from the slider (about 10 Hz).
+const SPEED_INTERVAL_MS: u64 = 100;
+
+/// Rate limiter for slider speed commands. The last value always gets sent.
+#[derive(Default)]
+struct SpeedLimiter {
+    last_sent: u64,
+    pending: Option<(f32, bool)>,
+    scheduled: bool,
+}
 
 #[component]
 pub fn ThrottleView() -> Element {
@@ -14,10 +29,13 @@ pub fn ThrottleView() -> Element {
     let (throttles, online) =
         bus.view(|d| (d.throttles.clone(), d.link_state() == LinkState::Online));
 
+    // DCC short addresses stop at 127; anything above is a long address.
+    let forced_long = address.read().trim().parse::<u16>().is_ok_and(|a| a > 127);
     let acquire = move || {
         if let Ok(a) = address.read().trim().parse::<u16>() {
             if (1..=10239).contains(&a) {
-                bus.act(|d, now| d.acquire(a, long(), now));
+                let long = long() || a > 127;
+                bus.act(|d, now| d.acquire(a, long, now));
             }
         }
     };
@@ -35,7 +53,13 @@ pub fn ThrottleView() -> Element {
                     }
                 }
                 label { class: "check",
-                    input { r#type: "checkbox", checked: long(), onchange: move |e| long.set(e.checked()) }
+                    input {
+                        r#type: "checkbox",
+                        checked: long() || forced_long,
+                        disabled: forced_long,
+                        title: if forced_long { "Addresses above 127 are always long" } else { "" },
+                        onchange: move |e| long.set(e.checked()),
+                    }
                     "Long address"
                 }
                 button { r#type: "submit", class: "primary", disabled: !online, "Acquire" }
@@ -63,12 +87,50 @@ fn ThrottleCard(t: Throttle) -> Element {
         ThrottleState::Searching => "Searching…".to_string(),
         ThrottleState::Assigning => "Taking control…".to_string(),
         ThrottleState::Active => "In control".to_string(),
-        ThrottleState::Failed(why) => why.clone(),
+        ThrottleState::Failed(why) => why.to_string(),
     };
     let failed = matches!(t.state, ThrottleState::Failed(_));
     let reverse = t.reverse;
     let speed = t.speed;
     let functions = t.functions;
+    let limiter = use_hook(|| Rc::new(RefCell::new(SpeedLimiter::default())));
+    // Send at most ~10 SetSpeed per second while dragging; the final value
+    // is sent when the interval ends. The displayed speed updates at once.
+    let slide = move |v: f32, rev: bool| {
+        let now = platform::now_ms();
+        let mut l = limiter.borrow_mut();
+        if !l.scheduled && now >= l.last_sent + SPEED_INTERVAL_MS {
+            l.last_sent = now;
+            drop(l);
+            bus.act(|d, _| d.set_speed(id, v, rev));
+            return;
+        }
+        l.pending = Some((v, rev));
+        bus.act(|d, _| {
+            if let Some(t) = d.throttles.iter_mut().find(|t| t.id == id) {
+                t.speed = v;
+                t.reverse = rev;
+                d.revision += 1;
+            }
+        });
+        if !l.scheduled {
+            l.scheduled = true;
+            let wait = (l.last_sent + SPEED_INTERVAL_MS).saturating_sub(now);
+            let limiter = limiter.clone();
+            spawn(async move {
+                platform::sleep_ms(wait as u32).await;
+                let next = {
+                    let mut l = limiter.borrow_mut();
+                    l.scheduled = false;
+                    l.last_sent = platform::now_ms();
+                    l.pending.take()
+                };
+                if let Some((v, rev)) = next {
+                    bus.act(|d, _| d.set_speed(id, v, rev));
+                }
+            });
+        }
+    };
 
     rsx! {
         div { class: if failed { "card throttle failed" } else { "card throttle" },
@@ -88,7 +150,7 @@ fn ThrottleCard(t: Throttle) -> Element {
                     disabled: !active,
                     oninput: move |e| {
                         let v = e.value().parse::<f32>().unwrap_or(0.0) / 126.0;
-                        bus.act(|d, _| d.set_speed(id, v, reverse));
+                        slide(v, reverse);
                     },
                 }
             }

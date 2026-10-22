@@ -6,3 +6,10 @@ title = "System4Dispatch"
 
 [web.watcher]
 watch_path = ["src", "assets", "../core/src"]
+
+[bundle]
+identifier = "com.uncommonmodels.system4dispatch"
+publisher = "Uncommon Models"
+short_description = "OpenLCB / LCC dispatch panel and throttle"
+category = "Utility"
+icon = ["icons/32x32.png", "icons/128x128.png", "icons/256x256.png", "icons/512x512.png", "icons/icon.ico"]

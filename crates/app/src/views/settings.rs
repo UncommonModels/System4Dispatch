@@ -4,21 +4,21 @@ use dioxus::prelude::*;
 use rolcb::NodeId;
 
 use crate::bus::{Bus, ConnStatus};
-use crate::storage::{save_settings, ConnKind, Settings};
+use crate::platform;
+use crate::storage::{save_settings, ConnKind, Settings, ThemePref};
 use crate::views::panel::Monitor;
-use crate::BridgeInfo;
 
 #[component]
 pub fn SettingsView() -> Element {
     let bus = use_context::<Bus>();
     let mut settings = use_context::<Signal<Settings>>();
-    let bridge = use_context::<Signal<Option<BridgeInfo>>>();
     let mut form = use_signal(|| settings.read().clone());
     let mut node_err = use_signal(|| None::<String>);
+    let mut ports = use_signal(platform::serial_ports);
     let conn = bus.conn.read().clone();
     let (alias, node, dup) = bus.view(|d| (d.alias(), d.node_id(), d.duplicate_node_id()));
     let f = form.read().clone();
-    let serial_ok = web_serial_supported();
+    let desktop = platform::TCP_AVAILABLE;
 
     let save = move |_| {
         let new = form.read().clone();
@@ -36,15 +36,22 @@ pub fn SettingsView() -> Element {
         save_settings(&new);
         settings.set(new.clone());
         bus.set_monitor(new.show_monitor);
-        if old.node_id != new.node_id {
+        platform::apply_theme(new.theme);
+        let node_changed = old.node_id != new.node_id;
+        // Captured before reset_node, which disconnects.
+        let was_wanted = bus.is_wanted();
+        if node_changed {
             bus.reset_node(node_id);
             bus.set_monitor(new.show_monitor);
         }
-        let link_changed = old.conn != new.conn || old.ws_url != new.ws_url || old.baud != new.baud;
-        let node_changed = old.node_id != new.node_id;
-        if (link_changed || node_changed) && (bus.is_wanted() || node_changed) {
+        let link_changed = old.conn != new.conn
+            || old.tcp_addr != new.tcp_addr
+            || old.serial_port != new.serial_port
+            || old.baud != new.baud;
+        if (link_changed || node_changed) && was_wanted {
             bus.disconnect();
-            if new.conn != ConnKind::Serial {
+            // Web Serial needs a click on Connect to pick the port.
+            if desktop || new.conn != ConnKind::Serial {
                 bus.connect(&new, false);
             }
         }
@@ -54,7 +61,7 @@ pub fn SettingsView() -> Element {
         div { class: "settings-view",
             section { class: "card",
                 h3 { "Connection" }
-                for kind in [ConnKind::Simulator, ConnKind::Serial, ConnKind::WebSocket] {
+                for kind in ConnKind::available() {
                     label { class: "radio",
                         input {
                             r#type: "radio", name: "conn",
@@ -66,31 +73,53 @@ pub fn SettingsView() -> Element {
                 }
                 match f.conn {
                     ConnKind::Simulator => rsx! {
-                        p { class: "muted", "A simulated layout and command station running in your browser. Blocks change occupancy on their own, turnouts report feedback, and any DCC address can be acquired." }
+                        p { class: "muted", "A simulated layout and command station. Blocks change occupancy on their own, turnouts report feedback, and any DCC address can be acquired." }
+                    },
+                    ConnKind::Serial if desktop => rsx! {
+                        p { class: "muted", "A GridConnect USB adapter (RR-CirKits LCC Buffer-USB, TCS USB, SPROG CANISB…) connected to this computer." }
+                        div { class: "pair",
+                            label { "Port"
+                                select {
+                                    onchange: move |e| form.write().serial_port = e.value(),
+                                    option { value: "", selected: f.serial_port.is_empty(), "— choose —" }
+                                    for p in ports.read().iter() {
+                                        option { value: "{p}", selected: f.serial_port == *p, "{p}" }
+                                    }
+                                    if !f.serial_port.is_empty() && !ports.read().contains(&f.serial_port) {
+                                        option { value: "{f.serial_port}", selected: true, "{f.serial_port} (not found)" }
+                                    }
+                                }
+                            }
+                            label { "Baud rate"
+                                input { r#type: "number", value: "{f.baud}", oninput: move |e| if let Ok(v) = e.value().parse() { form.write().baud = v } }
+                            }
+                        }
+                        button { onclick: move |_| ports.set(platform::serial_ports()), "Refresh ports" }
                     },
                     ConnKind::Serial => rsx! {
                         p { class: "muted",
-                            "Plug in a GridConnect USB adapter (RR-CirKits LCC Buffer-USB, TCS USB, SPROG CANISB…) and press Connect. "
-                            "Needs Chrome or Edge, with the page served over https or from localhost."
+                            "Plug in a GridConnect USB adapter (RR-CirKits LCC Buffer-USB, TCS USB, SPROG CANISB…) and press Connect; your browser will ask which port to use. "
+                            "Needs Chrome or Edge on a desktop computer."
                         }
-                        if !serial_ok {
-                            p { class: "warn", "This browser doesn't support Web Serial." }
+                        if !platform::serial_supported() {
+                            p { class: "warn", "This browser doesn't support USB serial. Use Chrome or Edge, or the desktop app." }
                         }
                         label { "Baud rate"
                             input { r#type: "number", value: "{f.baud}", oninput: move |e| if let Ok(v) = e.value().parse() { form.write().baud = v } }
                         }
                     },
-                    ConnKind::WebSocket => rsx! {
+                    ConnKind::Tcp => rsx! {
                         p { class: "muted",
-                            "Connect to an " code { "s4d-bridge" } " or " code { "rolcb-hub" } " on your network, which relays to JMRI, an LCC buffer or a USB adapter."
+                            "A GridConnect TCP hub: JMRI's LCC hub, an Ethernet LCC buffer, or "
+                            code { "rolcb-hub" } " (port 12021 by default)."
                         }
-                        label { "WebSocket URL"
-                            input { class: "mono", value: "{f.ws_url}", placeholder: "ws://raspberrypi.local:8080/ws", oninput: move |e| form.write().ws_url = e.value() }
-                        }
-                        p { class: "muted small",
-                            "Pages loaded over https can only reach ws:// on localhost. For other machines, open the app from the bridge itself (http://<bridge>:8080)."
+                        label { "Hub address (host:port)"
+                            input { class: "mono", value: "{f.tcp_addr}", placeholder: "jmri.local:12021", oninput: move |e| form.write().tcp_addr = e.value() }
                         }
                     },
+                }
+                if !desktop {
+                    p { class: "muted small", "Need to connect over the network to JMRI or an Ethernet LCC buffer? Use the System4Dispatch desktop app." }
                 }
                 label { class: "check",
                     input { r#type: "checkbox", checked: f.auto_connect, onchange: move |e| form.write().auto_connect = e.checked() }
@@ -105,7 +134,7 @@ pub fn SettingsView() -> Element {
                 }
                 if let Some(e) = node_err() { p { class: "warn", "{e}" } }
                 p { class: "muted small",
-                    "Every browser running System4Dispatch is its own node and needs a unique Node ID. "
+                    "Every running System4Dispatch is its own node and needs a unique Node ID. "
                     "A random one was generated; if you have your own assigned range, use an ID from it."
                 }
                 if dup {
@@ -114,6 +143,19 @@ pub fn SettingsView() -> Element {
                 p { class: "muted small",
                     "Current node {node}"
                     if let Some(a) = alias { ", alias {a:03X}" }
+                }
+            }
+
+            section { class: "card",
+                h3 { "Appearance" }
+                div { class: "seg-buttons theme-picker",
+                    for t in [ThemePref::Auto, ThemePref::Light, ThemePref::Dark] {
+                        button {
+                            class: if f.theme == t { "on" } else { "" },
+                            onclick: move |_| form.write().theme = t,
+                            "{t.label()}"
+                        }
+                    }
                 }
             }
 
@@ -137,29 +179,15 @@ pub fn SettingsView() -> Element {
                 }
             }
 
-            if let Some(b) = bridge() {
-                section { class: "card",
-                    h3 { "Bridge" }
-                    p { class: "muted", "Served by s4d-bridge {b.version}." }
-                    if !b.uplinks.is_empty() {
-                        p { class: "muted small", "Uplinks: {b.uplinks.join(\", \")}" }
-                    }
-                }
-            }
-
             Monitor {}
 
             section { class: "card about",
                 h3 { "About" }
-                p { "System4Dispatch {env!(\"CARGO_PKG_VERSION\")}: an OpenLCB / LCC dispatch panel and throttle that runs entirely in your browser." }
+                p {
+                    "System4Dispatch {env!(\"CARGO_PKG_VERSION\")}: an OpenLCB / LCC dispatch panel and throttle"
+                    if desktop { " (desktop app)." } else { " running in your browser." }
+                }
             }
         }
     }
-}
-
-fn web_serial_supported() -> bool {
-    let Some(w) = web_sys::window() else {
-        return false;
-    };
-    js_sys::Reflect::has(&w.navigator(), &"serial".into()).unwrap_or(false)
 }

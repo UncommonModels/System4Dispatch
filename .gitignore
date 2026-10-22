@@ -25,3 +25,14 @@ rustc-ice-*.txt
 
 # Dioxus build output
 /dist
+
+# Packaging build output
+/packaging/flatpak/app
+/packaging/flatpak/build-dir
+/packaging/flatpak/repo
+/packaging/flatpak/.flatpak-builder
+*.flatpak
+*.AppImage
+
+# mdBook output
+/docs/book/

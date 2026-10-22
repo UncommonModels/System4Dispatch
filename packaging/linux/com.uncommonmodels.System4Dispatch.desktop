@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=System4Dispatch
+GenericName=Model Railroad Dispatcher
+Comment=OpenLCB / LCC dispatch panel and throttle
+Exec=system4dispatch
+Icon=com.uncommonmodels.System4Dispatch
+Terminal=false
+Categories=Utility;Education;
+Keywords=LCC;OpenLCB;model railroad;train;dispatch;throttle;JMRI;
+StartupWMClass=system4dispatch

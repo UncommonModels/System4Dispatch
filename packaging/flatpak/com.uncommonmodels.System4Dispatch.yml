@@ -1,0 +1,56 @@
+# Flatpak packaging for the System4Dispatch desktop app.
+#
+# The app itself is built beforehand with `dx build --release --platform
+# desktop` (it needs the Dioxus CLI to lay out its assets) and copied into
+# ./app next to this manifest. The GNOME runtime provides WebKitGTK 4.1 and
+# GTK 3; libxdo (used by Dioxus' menu support) is built here.
+#
+#   dx build --release -p system4dispatch --platform desktop
+#   cp -r target/dx/system4dispatch/release/linux/app packaging/flatpak/app
+#   flatpak-builder --user --install --force-clean build-dir packaging/flatpak/com.uncommonmodels.System4Dispatch.yml
+app-id: com.uncommonmodels.System4Dispatch
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: system4dispatch
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # GridConnect over TCP (JMRI, Ethernet buffers, rolcb-hub).
+  - --share=network
+  # USB serial adapters (/dev/ttyACM*, /dev/ttyUSB*).
+  - --device=all
+modules:
+  - name: libxdo
+    buildsystem: simple
+    build-commands:
+      - make libxdo.so.3 WITHOUT_RPATH_FIX=1
+      - install -Dm755 libxdo.so.3 /app/lib/libxdo.so.3
+    sources:
+      - type: archive
+        url: https://github.com/jordansissel/xdotool/releases/download/v3.20211022.1/xdotool-3.20211022.1.tar.gz
+        sha256: 96f0facfde6d78eacad35b91b0f46fecd0b35e474c03e00e30da3fdd345f9ada
+
+  - name: system4dispatch
+    buildsystem: simple
+    build-commands:
+      # Dioxus finds its assets next to the real executable.
+      - mkdir -p /app/lib/system4dispatch /app/bin
+      - cp -r app/assets /app/lib/system4dispatch/
+      - install -Dm755 app/system4dispatch /app/lib/system4dispatch/system4dispatch
+      - ln -s ../lib/system4dispatch/system4dispatch /app/bin/system4dispatch
+      - install -Dm644 com.uncommonmodels.System4Dispatch.desktop /app/share/applications/com.uncommonmodels.System4Dispatch.desktop
+      - install -Dm644 icon.svg /app/share/icons/hicolor/scalable/apps/com.uncommonmodels.System4Dispatch.svg
+      - install -Dm644 com.uncommonmodels.System4Dispatch.metainfo.xml /app/share/metainfo/com.uncommonmodels.System4Dispatch.metainfo.xml
+    sources:
+      - type: dir
+        path: app
+        dest: app
+      - type: file
+        path: ../linux/com.uncommonmodels.System4Dispatch.desktop
+      - type: file
+        path: ../linux/com.uncommonmodels.System4Dispatch.metainfo.xml
+      - type: file
+        path: ../../crates/app/assets/icon.svg

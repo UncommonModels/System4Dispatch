@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.uncommonmodels.System4Dispatch</id>
+  <name>System4Dispatch</name>
+  <summary>OpenLCB / LCC dispatch panel and throttle</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="com.uncommonmodels">
+    <name>Uncommon Models</name>
+  </developer>
+  <description>
+    <p>
+      A dispatcher's panel and throttle for model railroads that use OpenLCB / LCC.
+      Draw your track diagram, watch block occupancy live, throw turnouts with a tap,
+      and run trains through an LCC command station.
+    </p>
+    <p>
+      Connects with a GridConnect USB adapter or over the network to JMRI, an Ethernet
+      LCC buffer or rolcb-hub. A built-in simulator lets you try everything without hardware.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.uncommonmodels.System4Dispatch.desktop</launchable>
+  <url type="homepage">https://www.uncommonmodels.com/System4Dispatch/</url>
+  <url type="vcs-browser">https://github.com/UncommonModels/System4Dispatch</url>
+  <content_rating type="oars-1.1"/>
+</component>

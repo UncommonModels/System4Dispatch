@@ -25,10 +25,31 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with: { workspaces: System4Dispatch }
       - uses: taiki-e/install-action@v2
-        with: { tool: dioxus-cli@0.7.10 }
+        with: { tool: "dioxus-cli@0.7.10,mdbook" }
       - name: Build web app
         working-directory: System4Dispatch
         run: dx bundle --platform web --release -p system4dispatch --base-path "${{ github.event.repository.name }}"
+      - name: Build docs (served at /docs/)
+        working-directory: System4Dispatch
+        run: |
+          mdbook build docs
+          cp -r docs/book target/dx/system4dispatch/release/web/public/docs
+      - name: Build API docs and schema (served at /docs/api/ and /docs/schema/)
+        working-directory: System4Dispatch
+        run: |
+          cargo doc -p s4d-core --no-deps --all-features
+          public=target/dx/system4dispatch/release/web/public/docs
+          mkdir -p "$public/api"
+          cp -r target/doc/. "$public/api/"
+          cat > "$public/api/index.html" <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta http-equiv="refresh" content="0; url=s4d_core/index.html">
+          <link rel="canonical" href="s4d_core/index.html">
+          <title>s4d-core API</title>
+          <a href="s4d_core/index.html">s4d-core API documentation</a>
+          HTML
+          cp -r docs/schema "$public/schema"
       - uses: actions/upload-pages-artifact@v3
         with: { path: System4Dispatch/target/dx/system4dispatch/release/web/public }
   deploy:

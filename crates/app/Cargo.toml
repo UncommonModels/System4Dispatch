@@ -1,6 +1,6 @@
 [package]
 name = "system4dispatch"
-description = "System4Dispatch: browser-based OpenLCB dispatch panel and throttle"
+description = "System4Dispatch: OpenLCB dispatch panel and throttle (web and desktop)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,10 +12,20 @@ rolcb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 futures = "0.3"
-gloo-timers = { version = "0.3", features = ["futures"] }
-js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window", "Storage", "Navigator"] }
+
+# Web build: Web Serial via JS, localStorage.
+gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", features = ["Window", "Storage", "Navigator"], optional = true }
+
+# Desktop build: native GridConnect over TCP and serial, files on disk.
+tokio = { version = "1.48", features = ["net", "io-util", "time", "rt", "macros"], optional = true }
+tokio-serial = { version = "5.5", default-features = false, optional = true }
+rfd = { version = "0.17", optional = true }
+dirs = { version = "6", optional = true }
+dark-light = { version = "3", optional = true }
 
 [features]
 default = ["web"]
-web = ["dioxus/web"]
+web = ["dioxus/web", "dep:gloo-timers", "dep:js-sys", "dep:web-sys"]
+desktop = ["dioxus/desktop", "dep:tokio", "dep:tokio-serial", "dep:rfd", "dep:dirs", "dep:dark-light"]

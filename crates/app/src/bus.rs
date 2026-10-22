@@ -1,17 +1,19 @@
-//! Owns the [`Dispatcher`] and the active link (simulator, Web Serial or
-//! WebSocket), moves frames between them, and tells the UI when to redraw.
+//! Owns the [`Dispatcher`] and the active link (simulator, USB serial or
+//! GridConnect TCP), moves frames between them, and tells the UI when to
+//! redraw.
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use dioxus::document::Eval;
 use dioxus::prelude::*;
+use futures::channel::mpsc::UnboundedReceiver;
+use futures::StreamExt;
 use rolcb::gridconnect;
 use rolcb::NodeId;
 use s4d_core::sim::Simulator;
 use s4d_core::{Dispatcher, Layout};
 
-use crate::js::{self, LinkMsg};
+use crate::platform::{self, LinkMsg, LinkOut};
 use crate::storage::{ConnKind, Settings};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,10 +24,23 @@ pub enum ConnStatus {
     Error(String),
 }
 
+/// Reported as the node's SNIP hardware version.
+const HARDWARE_VERSION: &str = if cfg!(feature = "desktop") {
+    "Desktop"
+} else {
+    "Web"
+};
+
+fn new_dispatcher(node_id: NodeId, layout: Layout) -> Dispatcher {
+    let mut info = Dispatcher::default_info();
+    info.hardware_version = HARDWARE_VERSION.into();
+    Dispatcher::with_info(node_id, layout, info)
+}
+
 enum Link {
     None,
     Sim(Box<Simulator>),
-    Js(Eval),
+    Remote(Box<dyn Fn(LinkOut)>),
 }
 
 struct Inner {
@@ -35,7 +50,7 @@ struct Inner {
     last_rev: u64,
     /// Bumped on every connect/disconnect so stale link tasks can tell.
     generation: u64,
-    /// The user wants to be connected (drives WebSocket auto-reconnect).
+    /// The user wants to be connected (drives TCP auto-reconnect).
     wanted: bool,
 }
 
@@ -51,16 +66,20 @@ pub struct Bus {
 impl Bus {
     pub fn new(node_id: NodeId, layout: Layout) -> Bus {
         Bus {
-            inner: CopyValue::new(Rc::new(RefCell::new(Inner {
-                disp: Dispatcher::new(node_id, layout),
-                link: Link::None,
-                decoder: gridconnect::Decoder::new(),
-                last_rev: 0,
-                generation: 0,
-                wanted: false,
-            }))),
-            rev: Signal::new(0),
-            conn: Signal::new(ConnStatus::Disconnected),
+            // Owned by the root scope: link tasks (spawn_forever) use them too.
+            inner: CopyValue::new_in_scope(
+                Rc::new(RefCell::new(Inner {
+                    disp: new_dispatcher(node_id, layout),
+                    link: Link::None,
+                    decoder: gridconnect::Decoder::new(),
+                    last_rev: 0,
+                    generation: 0,
+                    wanted: false,
+                })),
+                ScopeId::ROOT,
+            ),
+            rev: Signal::new_in_scope(0, ScopeId::ROOT),
+            conn: Signal::new_in_scope(ConnStatus::Disconnected, ScopeId::ROOT),
         }
     }
 
@@ -85,7 +104,7 @@ impl Bus {
 
     /// Mutate the dispatcher (throw, throttle...), then send what it queued.
     pub fn act<R>(&self, f: impl FnOnce(&mut Dispatcher, u64) -> R) -> R {
-        let r = f(&mut self.cell().borrow_mut().disp, js::now_ms());
+        let r = f(&mut self.cell().borrow_mut().disp, platform::now_ms());
         self.pump();
         r
     }
@@ -95,7 +114,7 @@ impl Bus {
         {
             let cell = self.cell();
             let mut i = cell.borrow_mut();
-            let now = js::now_ms();
+            let now = platform::now_ms();
             i.disp.poll(now);
             if let Link::Sim(sim) = &mut i.link {
                 sim.poll(now);
@@ -107,23 +126,23 @@ impl Bus {
     /// Move frames until both sides are quiet, then trigger a redraw if
     /// anything changed.
     fn pump(&self) {
+        let cell = self.cell();
         {
-            let cell = self.cell();
             let mut guard = cell.borrow_mut();
             let i = &mut *guard;
-            let now = js::now_ms();
+            let now = platform::now_ms();
             for _ in 0..32 {
                 let out = i.disp.take_outgoing();
                 match &mut i.link {
                     Link::None => break,
-                    Link::Js(eval) => {
+                    Link::Remote(tx) => {
                         if !out.is_empty() {
                             let mut text = String::with_capacity(out.len() * 30);
                             for f in &out {
                                 text.push_str(&gridconnect::format(f));
                                 text.push('\n');
                             }
-                            let _ = eval.send(text);
+                            tx(LinkOut::Data(text));
                         }
                         break;
                     }
@@ -142,10 +161,9 @@ impl Bus {
                 }
             }
         }
-        let rev = self.cell().borrow().disp.revision;
         let changed = {
-            let cell = self.cell();
             let mut i = cell.borrow_mut();
+            let rev = i.disp.revision;
             let c = i.last_rev != rev;
             i.last_rev = rev;
             c
@@ -161,8 +179,10 @@ impl Bus {
             let cell = self.cell();
             let mut i = cell.borrow_mut();
             if let Link::Sim(_) = i.link {
-                // The simulator models the layout, so rebuild it.
-                let now = js::now_ms();
+                // The simulator models the layout, so rebuild it. That is a
+                // new bus: trains (and their aliases) from the old one are gone.
+                let now = platform::now_ms();
+                i.disp.link_down();
                 i.link = Link::Sim(Box::new(Simulator::new(layout.clone(), now)));
                 i.disp.set_layout(layout);
                 i.disp.link_up(now);
@@ -177,11 +197,19 @@ impl Bus {
         self.cell().borrow_mut().disp.monitor = on;
     }
 
-    /// Replace the dispatcher (e.g. after the Node ID changed).
+    /// Replace the dispatcher (e.g. after the Node ID changed). Open
+    /// throttles release their trains first, while the old node can still
+    /// talk to them.
     pub fn reset_node(&self, node_id: NodeId) {
+        self.act(|d, _| {
+            let ids: Vec<u32> = d.throttles.iter().map(|t| t.id).collect();
+            for id in ids {
+                d.release(id);
+            }
+        });
         let layout = self.peek(|d| d.layout().clone());
         self.disconnect();
-        self.cell().borrow_mut().disp = Dispatcher::new(node_id, layout);
+        self.cell().borrow_mut().disp = new_dispatcher(node_id, layout);
         self.pump();
     }
 
@@ -194,8 +222,9 @@ impl Bus {
         c.set(s);
     }
 
-    /// Open the configured connection.
-    pub fn connect(&self, settings: &Settings, reuse_serial: bool) {
+    /// Open the configured connection. `auto` = not started by a click
+    /// (Web Serial then only reuses an already-authorised port).
+    pub fn connect(&self, settings: &Settings, auto: bool) {
         self.close_link();
         let gen = {
             let cell = self.cell();
@@ -204,74 +233,70 @@ impl Bus {
             i.wanted = true;
             i.generation
         };
-        match settings.conn {
+        let link = match settings.conn {
             ConnKind::Simulator => {
                 {
                     let cell = self.cell();
                     let mut i = cell.borrow_mut();
-                    let now = js::now_ms();
+                    let now = platform::now_ms();
                     let layout = i.disp.layout().clone();
                     i.link = Link::Sim(Box::new(Simulator::new(layout, now)));
                     i.disp.link_up(now);
                 }
                 self.set_conn(ConnStatus::Connected);
                 self.pump();
+                return;
             }
-            ConnKind::Serial | ConnKind::WebSocket => {
-                let eval = if settings.conn == ConnKind::Serial {
-                    js::open_serial(settings.baud, reuse_serial)
-                } else {
-                    js::open_websocket(&settings.ws_url)
-                };
-                self.cell().borrow_mut().link = Link::Js(eval);
-                self.set_conn(ConnStatus::Connecting);
-                let bus = *self;
-                let settings = settings.clone();
-                dioxus::core::spawn_forever(async move { bus.run_link(eval, gen, settings).await });
-            }
-        }
+            ConnKind::Serial => platform::open_serial(&settings.serial_port, settings.baud, auto),
+            ConnKind::Tcp => platform::open_tcp(&settings.tcp_addr),
+        };
+        self.cell().borrow_mut().link = Link::Remote(link.tx);
+        self.set_conn(ConnStatus::Connecting);
+        let bus = *self;
+        let settings = settings.clone();
+        dioxus::core::spawn_forever(async move { bus.run_link(link.rx, gen, settings).await });
     }
 
-    async fn run_link(&self, mut eval: Eval, gen: u64, settings: Settings) {
+    async fn run_link(&self, mut rx: UnboundedReceiver<LinkMsg>, gen: u64, settings: Settings) {
         let current = |b: &Bus| b.cell().borrow().generation == gen;
         loop {
-            let msg = eval.recv::<LinkMsg>().await;
+            let msg = rx.next().await;
             if !current(self) {
                 return;
             }
             match msg {
-                Ok(LinkMsg::Open) => {
-                    self.cell().borrow_mut().disp.link_up(js::now_ms());
+                Some(LinkMsg::Open) => {
+                    self.cell().borrow_mut().disp.link_up(platform::now_ms());
                     self.set_conn(ConnStatus::Connected);
                     self.pump();
                 }
-                Ok(LinkMsg::Data { d }) => {
+                Some(LinkMsg::Data { d }) => {
                     {
                         let cell = self.cell();
                         let mut guard = cell.borrow_mut();
                         let i = &mut *guard;
-                        let now = js::now_ms();
+                        let now = platform::now_ms();
                         for f in i.decoder.push(d.as_bytes()).into_iter().flatten() {
                             i.disp.receive(&f, now);
                         }
                     }
                     self.pump();
                 }
-                Ok(LinkMsg::Closed { e }) | Ok(LinkMsg::Error { e }) => {
+                Some(LinkMsg::Closed { e }) | Some(LinkMsg::Error { e }) => {
                     self.link_lost(if e.is_empty() { None } else { Some(e) });
                     break;
                 }
-                Err(_) => {
+                None => {
                     self.link_lost(Some("connection ended".into()));
                     break;
                 }
             }
         }
         // Network links come back by themselves; serial needs the user.
-        if settings.conn == ConnKind::WebSocket {
-            gloo_timers::future::TimeoutFuture::new(2_000).await;
+        if settings.conn == ConnKind::Tcp {
+            platform::sleep_ms(3_000).await;
             if current(self) && self.is_wanted() {
-                self.connect(&settings, false);
+                self.connect(&settings, true);
             }
         }
     }
@@ -294,8 +319,8 @@ impl Bus {
     fn close_link(&self) {
         let cell = self.cell();
         let mut i = cell.borrow_mut();
-        if let Link::Js(eval) = &i.link {
-            let _ = eval.send(js::CLOSE);
+        if let Link::Remote(tx) = &i.link {
+            tx(LinkOut::Close);
         }
         i.link = Link::None;
     }

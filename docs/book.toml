@@ -1,0 +1,19 @@
+[book]
+title = "System4Dispatch"
+authors = ["Uncommon Models"]
+description = "User guide and technical documentation for System4Dispatch, an OpenLCB / LCC dispatch panel and throttle."
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+site-url = "/System4Dispatch/docs/"
+git-repository-url = "https://github.com/UncommonModels/System4Dispatch"
+edit-url-template = "https://github.com/UncommonModels/System4Dispatch/edit/main/docs/{path}"
+default-theme = "light"
+preferred-dark-theme = "navy"
+
+[output.html.search]
+enable = true

@@ -1,0 +1,357 @@
+{
+  "$id": "layout-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "System4Dispatch layout",
+  "description": "A complete panel: grid size, blocks, turnouts and the tiles drawn.",
+  "type": "object",
+  "properties": {
+    "blocks": {
+      "description": "Detection blocks.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Block"
+      }
+    },
+    "elements": {
+      "description": "Tiles drawn on the grid, at most one per cell.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Element"
+      }
+    },
+    "grid": {
+      "description": "Size of the tile grid.",
+      "$ref": "#/$defs/Grid",
+      "default": {
+        "cols": 32,
+        "rows": 16
+      }
+    },
+    "name": {
+      "description": "Human-readable layout name, shown in the app's title bar.",
+      "type": "string",
+      "default": ""
+    },
+    "turnouts": {
+      "description": "Turnouts.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Turnout"
+      }
+    },
+    "version": {
+      "description": "Format version. Files newer than the app understands are refused.",
+      "type": "integer",
+      "format": "uint32",
+      "default": 1,
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "Block": {
+      "description": "A detection block. Occupancy detectors usually produce one event when the\nblock becomes occupied and another when it clears.",
+      "type": "object",
+      "properties": {
+        "clear_event": {
+          "description": "Event produced when the block becomes clear.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "description": "Unique id (shared namespace with turnouts), e.g. `\"B1\"`.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name; the id is shown when empty.",
+          "type": "string",
+          "default": ""
+        },
+        "occupied_event": {
+          "description": "Event produced when the block becomes occupied.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "Element": {
+      "description": "Something drawn on the grid.",
+      "oneOf": [
+        {
+          "description": "A track tile. `\"type\": \"turnout\"` is accepted as a legacy alias.",
+          "type": "object",
+          "properties": {
+            "block": {
+              "description": "The block this tile belongs to, by id.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "rot": {
+              "description": "Clockwise rotation in 45° steps, `0..=7`.",
+              "type": "integer",
+              "format": "uint8",
+              "default": 0,
+              "maximum": 7,
+              "minimum": 0
+            },
+            "shape": {
+              "description": "What is drawn.",
+              "$ref": "#/$defs/Shape"
+            },
+            "turnout": {
+              "description": "The turnout this tile shows, by id (turnout shapes only).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "const": "track"
+            },
+            "x": {
+              "description": "Column.",
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            },
+            "y": {
+              "description": "Row.",
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y",
+            "shape"
+          ]
+        },
+        {
+          "description": "A text label.",
+          "type": "object",
+          "properties": {
+            "text": {
+              "description": "The text.",
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "const": "label"
+            },
+            "x": {
+              "description": "Column.",
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            },
+            "y": {
+              "description": "Row.",
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y",
+            "text"
+          ]
+        }
+      ]
+    },
+    "EventId": {
+      "description": "An OpenLCB event ID: eight hex bytes, optionally separated by '.', ':', '-' or ' '.",
+      "type": "string",
+      "examples": [
+        "05.01.01.01.22.00.00.10"
+      ],
+      "pattern": "^[0-9A-Fa-f]{2}([.:\\- ]?[0-9A-Fa-f]{2}){7}$"
+    },
+    "Feedback": {
+      "description": "Events produced by a turnout's position sensors.",
+      "type": "object",
+      "properties": {
+        "normal_event": {
+          "description": "Produced when the points reach normal.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reverse_event": {
+          "description": "Produced when the points reach reverse.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "Grid": {
+      "description": "The size of the tile grid, in cells.",
+      "type": "object",
+      "properties": {
+        "cols": {
+          "description": "Number of columns (x runs `0..cols`).",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "rows": {
+          "description": "Number of rows (y runs `0..rows`).",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        }
+      },
+      "required": [
+        "cols",
+        "rows"
+      ]
+    },
+    "Shape": {
+      "description": "Tile shapes. Each can be rotated in 45° steps (`rot` 0..=7, clockwise).",
+      "oneOf": [
+        {
+          "description": "W to E.",
+          "type": "string",
+          "const": "straight"
+        },
+        {
+          "description": "W to NE (a 45° curve).",
+          "type": "string",
+          "const": "curve"
+        },
+        {
+          "description": "W to a dead end.",
+          "type": "string",
+          "const": "bumper"
+        },
+        {
+          "description": "W–E crossing N–S.",
+          "type": "string",
+          "const": "crossing"
+        },
+        {
+          "description": "W–E crossing NW–SE (a diamond).",
+          "type": "string",
+          "const": "crossing_diag"
+        },
+        {
+          "description": "Normal W–E, reverse W–NE.",
+          "type": "string",
+          "const": "turnout_left"
+        },
+        {
+          "description": "Normal W–E, reverse W–SE.",
+          "type": "string",
+          "const": "turnout_right"
+        },
+        {
+          "description": "Normal W–NE, reverse W–SE.",
+          "type": "string",
+          "const": "wye"
+        }
+      ]
+    },
+    "Turnout": {
+      "description": "A turnout. Sending `normal_event` / `reverse_event` throws it; optional\nfeedback events report the real point position.",
+      "type": "object",
+      "properties": {
+        "feedback": {
+          "description": "Point-position feedback, if the turnout has sensors.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Feedback"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "description": "Unique id (shared namespace with blocks), e.g. `\"T1\"`.",
+          "type": "string"
+        },
+        "linked": {
+          "description": "Id of a turnout always thrown together with this one (e.g. the other half of a crossover). Both turnouts must name each other and agree on `linked_inverted`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "linked_inverted": {
+          "description": "Throw the linked turnout to the opposite position instead.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Display name; the id is shown when empty.",
+          "type": "string",
+          "default": ""
+        },
+        "normal_event": {
+          "description": "Event that throws the turnout to normal.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reverse_event": {
+          "description": "Event that throws the turnout to reverse.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  }
+}

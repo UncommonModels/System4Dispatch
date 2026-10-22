@@ -4,8 +4,25 @@ description = "System4Dispatch core: layout model, dispatcher state and simulato
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+documentation = "https://uncommonmodels.github.io/System4Dispatch/docs/api/s4d_core/"
+rust-version = "1.85"
+
+[features]
+default = []
+## Derive `schemars::JsonSchema` for the layout file types.
+schema = ["dep:schemars"]
 
 [dependencies]
 rolcb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+schemars = { version = "1.2", optional = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[[example]]
+name = "layout_schema"
+required-features = ["schema"]

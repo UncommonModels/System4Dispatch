@@ -1,23 +1,24 @@
-//! System4Dispatch web app (Dioxus, compiled to WASM).
+//! System4Dispatch (Dioxus): runs in the browser (WASM, feature `web`) or as
+//! a native desktop app (feature `desktop`).
 
 use dioxus::prelude::*;
 use rolcb::NodeId;
 use s4d_core::{Layout, LinkState};
-use serde::Deserialize;
 
 mod bus;
-mod js;
+mod platform;
 mod storage;
 mod track;
 mod views {
     pub mod editor;
+    pub mod help;
     pub mod panel;
     pub mod settings;
     pub mod throttle;
 }
 
 use bus::{Bus, ConnStatus};
-use storage::{ConnKind, Settings};
+use storage::Settings;
 
 const STYLE: Asset = asset!("/assets/style.css");
 const MANIFEST: Asset = asset!("/assets/manifest.webmanifest");
@@ -29,47 +30,66 @@ enum Tab {
     Throttles,
     Editor,
     Settings,
+    Help,
 }
 
 /// The editor's unsaved copy of the layout (kept while switching tabs).
 #[derive(Clone, Copy)]
 pub struct Draft(pub Signal<Option<Layout>>);
 
-/// Present when the page was served by `s4d-bridge`.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct BridgeInfo {
-    pub version: String,
-    #[serde(default)]
-    pub uplinks: Vec<String>,
-    #[serde(default)]
-    pub shared_layout: bool,
+/// Editor undo/redo stacks (kept while switching tabs).
+#[derive(Clone, Copy)]
+pub struct History {
+    pub undo: Signal<Vec<Layout>>,
+    pub redo: Signal<Vec<Layout>>,
 }
 
 fn main() {
+    #[cfg(feature = "desktop")]
+    {
+        use dioxus::desktop::tao::window::Theme;
+        use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
+        let dark = match storage::load_settings().theme {
+            storage::ThemePref::Dark => true,
+            storage::ThemePref::Light => false,
+            storage::ThemePref::Auto => platform::system_dark().unwrap_or(true),
+        };
+        let window = WindowBuilder::new()
+            .with_title("System4Dispatch")
+            .with_inner_size(LogicalSize::new(1320.0, 860.0))
+            .with_min_inner_size(LogicalSize::new(420.0, 520.0))
+            .with_theme(Some(if dark { Theme::Dark } else { Theme::Light }));
+        // Matches --bg so there's no white flash before the page loads.
+        let bg = if dark {
+            (20, 24, 28, 255)
+        } else {
+            (238, 241, 244, 255)
+        };
+        let cfg = Config::new()
+            .with_menu(None)
+            .with_window(window)
+            .with_background_color(bg)
+            .with_disable_context_menu(!cfg!(debug_assertions));
+        dioxus::LaunchBuilder::desktop().with_cfg(cfg).launch(App);
+    }
+    #[cfg(not(feature = "desktop"))]
     dioxus::launch(App);
 }
 
-/// Persist a layout locally, push it to the bridge if there is one, and
-/// apply it to the dispatcher.
+/// Persist a layout and apply it to the dispatcher.
 pub fn save_layout(bus: Bus, layout: Layout) {
     storage::save_local_layout(&layout);
-    let shared = try_consume_context::<Signal<Option<BridgeInfo>>>()
-        .and_then(|b| b.peek().clone())
-        .is_some_and(|b| b.shared_layout);
-    if shared {
-        let json = layout.to_json();
-        dioxus::core::spawn_forever(async move {
-            let _ = js::fetch("layout.json", "PUT", Some(&json)).await;
-        });
-    }
     bus.set_layout(layout);
 }
 
 #[component]
 fn App() -> Element {
     let settings = use_context_provider(|| Signal::new(storage::load_settings()));
-    let bridge = use_context_provider(|| Signal::new(None::<BridgeInfo>));
     use_context_provider(|| Draft(Signal::new(None)));
+    use_context_provider(|| History {
+        undo: Signal::new(Vec::new()),
+        redo: Signal::new(Vec::new()),
+    });
     let bus = use_context_provider(|| {
         let s = settings.peek();
         let node = s
@@ -82,49 +102,25 @@ fn App() -> Element {
         bus
     });
     let mut tab = use_signal(|| Tab::Panel);
+    // Saved data that couldn't be read (settings and layout are loaded above).
+    let mut load_error = use_signal(storage::take_load_error);
 
-    // Startup: detect the bridge, load the shared layout, auto-connect.
-    use_hook(move || {
-        js::register_service_worker();
-        spawn(async move {
-            let mut settings = settings;
-            let mut bridge = bridge;
-            if let Some(info) = js::fetch("api/info", "GET", None)
-                .await
-                .and_then(|t| serde_json::from_str::<BridgeInfo>(&t).ok())
-            {
-                if info.shared_layout {
-                    if let Some(l) = js::fetch("layout.json", "GET", None)
-                        .await
-                        .and_then(|t| Layout::from_json(&t).ok())
-                    {
-                        storage::save_local_layout(&l);
-                        bus.set_layout(l);
-                    }
-                }
-                // Served by the bridge: default to talking back to it.
-                let mut s = settings.peek().clone();
-                if s.ws_url.is_empty() {
-                    s.ws_url = js::default_ws_url().await;
-                    s.conn = ConnKind::WebSocket;
-                    storage::save_settings(&s);
-                    settings.set(s);
-                }
-                bridge.set(Some(info));
-            } else if settings.peek().ws_url.is_empty() {
-                settings.write().ws_url = "ws://localhost:12022".into();
-            }
-            let s = settings.peek().clone();
-            if s.auto_connect {
-                bus.connect(&s, true);
-            }
-        });
+    // Startup: offline support (web) and auto-connect. An effect, not a hook,
+    // because connecting writes signals, which mustn't happen during render.
+    // It reads signals only with `peek`, so it runs once.
+    use_effect(move || {
+        platform::register_service_worker();
+        let s = settings.peek().clone();
+        platform::apply_theme(s.theme);
+        if s.auto_connect {
+            bus.connect(&s, true);
+        }
     });
 
     // Protocol timers + simulator.
     use_future(move || async move {
         loop {
-            gloo_timers::future::TimeoutFuture::new(50).await;
+            platform::sleep_ms(50).await;
             bus.tick();
         }
     });
@@ -138,16 +134,26 @@ fn App() -> Element {
         document::Meta { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" }
         div { class: "app",
             Header { tab }
+            if let Some(e) = load_error() {
+                div {
+                    class: "error",
+                    role: "alert",
+                    title: "Click to dismiss",
+                    onclick: move |_| load_error.set(None),
+                    "{e} (click to dismiss)"
+                }
+            }
             main {
                 match tab() {
                     Tab::Panel => rsx! { views::panel::PanelView {} },
                     Tab::Throttles => rsx! { views::throttle::ThrottleView {} },
                     Tab::Editor => rsx! { views::editor::EditorView {} },
                     Tab::Settings => rsx! { views::settings::SettingsView {} },
+                    Tab::Help => rsx! { views::help::HelpView {} },
                 }
             }
             nav { class: "tabbar",
-                for (t, icon, label) in [(Tab::Panel, "▦", "Panel"), (Tab::Throttles, "◉", "Throttles"), (Tab::Editor, "✎", "Editor"), (Tab::Settings, "⚙", "Settings")] {
+                for (t, icon, label) in [(Tab::Panel, "▦", "Panel"), (Tab::Throttles, "◉", "Throttles"), (Tab::Editor, "✎", "Editor"), (Tab::Settings, "⚙", "Settings"), (Tab::Help, "?", "Help")] {
                     button {
                         class: if tab() == t { "on" } else { "" },
                         onclick: move |_| tab.set(t),

@@ -4,6 +4,29 @@
 //!
 //! All simulated devices are genuine `rolcb::Node`s, so the dispatcher talks
 //! to them with exactly the frames it would send to real hardware.
+//!
+//! # What is modelled
+//!
+//! * **Blocks.** Every block's `occupied_event` / `clear_event` is a
+//!   producer whose state follows the simulated occupancy, so Identify
+//!   Producer gets a truthful Valid/Invalid answer. [`Simulator::set_occupied`]
+//!   changes a block and sends the matching PCER. With
+//!   [`Simulator::random_occupancy`] a random block flips every few seconds.
+//! * **Turnouts.** Command events are consumed. A turnout moves as soon as
+//!   its command arrives; if it has feedback, the feedback producer reports
+//!   the new position (state change plus PCER) after a short delay, like a
+//!   slow-motion machine. (Unlike many real sensors, it reports again even
+//!   when the position didn't change.) Identify Producer on a feedback
+//!   event always answers with the current state.
+//! * **Command station and trains.** A Traction search with `ALLOCATE`
+//!   creates a train node for that DCC address; short and long addresses
+//!   (the `DCC_LONG_ADDRESS` search flag) are distinct trains. Trains accept
+//!   one controller at a time (refusing others), track speed and functions,
+//!   answer queries, and ask their controller for a heartbeat every
+//!   [`HEARTBEAT_MS`].
+//!
+//! Not modelled: CAN bandwidth, lost frames, consists, Memory
+//! Configuration and Controller Changed notifications.
 
 use std::collections::BTreeMap;
 
@@ -19,17 +42,29 @@ pub const HEARTBEAT_MS: u64 = 10_000;
 const FEEDBACK_DELAY_MS: u64 = 400;
 const OCCUPANCY_PERIOD_MS: u64 = 3_000;
 
+/// A simulated train node created by the command station.
 pub struct SimTrain {
+    /// DCC address.
     pub address: u16,
+    /// True for a DCC long (extended) address.
+    pub long_address: bool,
+    /// The train's OpenLCB node.
     pub node: Node,
+    /// The throttle in control, if any.
     pub controller: Option<NodeId>,
     controller_alias: Option<u16>,
+    /// Last speed set.
     pub speed: Speed,
+    /// Function states F0..=F28.
     pub functions: [bool; 29],
+    /// Heartbeat answers (Noop commands) received.
     pub noops: u32,
     next_heartbeat: u64,
 }
 
+/// The simulated layout controller and command station. Sans-IO, like
+/// [`Dispatcher`](crate::Dispatcher): feed it frames and time, collect
+/// frames with [`Simulator::take_outgoing`].
 pub struct Simulator {
     layout: Layout,
     node: Node,
@@ -54,6 +89,8 @@ fn info(model: &str) -> NodeInfo {
 }
 
 impl Simulator {
+    /// Simulate `layout`, starting at `now` (milliseconds). All blocks
+    /// start clear and all turnouts normal.
     pub fn new(layout: Layout, now: u64) -> Self {
         let mut s = Simulator {
             node: Node::new(NodeId::new(0x0501_0101_FF00), info("Simulated layout")),
@@ -109,12 +146,41 @@ impl Simulator {
         }
     }
 
+    /// The simulated position of a turnout.
     pub fn turnout_position(&self, id: &str) -> Option<Position> {
         self.turnouts.get(id).copied()
     }
 
+    /// The simulated occupancy of a block.
+    pub fn occupied(&self, id: &str) -> Option<bool> {
+        self.occupied.get(id).copied()
+    }
+
+    /// The first train created for this DCC address (short or long). Use
+    /// [`Simulator::find_train`] to tell short 3 from long 3.
     pub fn train(&self, address: u16) -> Option<&SimTrain> {
         self.trains.iter().find(|t| t.address == address)
+    }
+
+    /// The train for this DCC address and address kind.
+    pub fn find_train(&self, address: u16, long_address: bool) -> Option<&SimTrain> {
+        let long_address = long_address || address > 127;
+        self.trains
+            .iter()
+            .find(|t| t.address == address && t.long_address == long_address)
+    }
+
+    /// Mutable access to a train, e.g. to make it send something in a test.
+    pub fn train_mut(&mut self, address: u16, long_address: bool) -> Option<&mut SimTrain> {
+        let long_address = long_address || address > 127;
+        self.trains
+            .iter_mut()
+            .find(|t| t.address == address && t.long_address == long_address)
+    }
+
+    /// Every train created so far.
+    pub fn trains(&self) -> &[SimTrain] {
+        &self.trains
     }
 
     /// Change a block's occupancy and report it on the bus.
@@ -142,6 +208,7 @@ impl Simulator {
         self.rng
     }
 
+    /// Run timers: login, heartbeats, delayed feedback, random occupancy.
     pub fn poll(&mut self, now: u64) {
         self.now = now;
         self.node.poll(now);
@@ -194,6 +261,7 @@ impl Simulator {
         }
     }
 
+    /// Process one frame from the bus.
     pub fn receive(&mut self, frame: &CanFrame, now: u64) {
         self.now = now;
         let rx = self.node.receive(frame, now);
@@ -237,19 +305,26 @@ impl Simulator {
     }
 
     fn train_search(&mut self, e: EventId, now: u64) {
-        let Some((address, _flags)) = search::decode(e) else {
+        let Some((address, flags)) = search::decode(e) else {
             return;
         };
         let address = address as u16;
-        if let Some(t) = self.trains.iter_mut().find(|t| t.address == address) {
+        let long_address = flags & search::DCC_LONG_ADDRESS != 0 || address > 127;
+        if let Some(t) = self
+            .trains
+            .iter_mut()
+            .find(|t| t.address == address && t.long_address == long_address)
+        {
             t.node.send(Message::ProducerIdentified {
                 event: e,
                 state: EventState::Valid,
             });
             return;
         }
-        let id = NodeId::new(0x0501_0101_FE00_0000 | address as u64);
-        let mut node = Node::new(id, info(&format!("Simulated train {address}")));
+        // 05.01.01.FE.xx.xx: address in the low 14 bits, bit 15 = long address.
+        let id = NodeId::new(0x0501_01FE_0000 | address as u64 | (long_address as u64) << 15);
+        let kind = if long_address { " (long)" } else { "" };
+        let mut node = Node::new(id, info(&format!("Simulated train {address}{kind}")));
         node.set_protocols(
             rolcb::message::protocol::EVENT_EXCHANGE
                 | rolcb::message::protocol::SNIP
@@ -263,6 +338,7 @@ impl Simulator {
         });
         self.trains.push(SimTrain {
             address,
+            long_address,
             node,
             controller: None,
             controller_alias: None,
@@ -273,6 +349,7 @@ impl Simulator {
         });
     }
 
+    /// Frames to put on the bus.
     pub fn take_outgoing(&mut self) -> Vec<CanFrame> {
         let mut out = self.node.take_outgoing();
         for t in &mut self.trains {

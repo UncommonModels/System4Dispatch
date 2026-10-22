@@ -1,8 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/app", "crates/bridge"]
+members = ["crates/core", "crates/app"]
 # `cargo test` / `cargo build` on the host skip the WASM app; build it with `dx`.
-default-members = ["crates/core", "crates/bridge"]
+default-members = ["crates/core"]
 
 [workspace.package]
 version = "0.1.0"

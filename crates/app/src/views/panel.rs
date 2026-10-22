@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use s4d_core::{LinkState, Occupancy, Position};
 
 use crate::bus::Bus;
-use crate::js;
+use crate::platform;
 use crate::storage::Settings;
 use crate::track::{Mode, TrackView};
 
@@ -31,21 +31,20 @@ pub fn PanelView() -> Element {
 
     let throw = move |id: String, pos: Option<Position>| {
         let name = bus.peek(|d| {
-            d.layout().turnout(&id).map(|t| {
-                if t.name.is_empty() {
-                    t.id.clone()
-                } else {
-                    t.name.clone()
-                }
-            })
+            d.layout()
+                .turnout(&id)
+                .map(|t| t.display_name().to_string())
         });
         let name = name.unwrap_or_else(|| id.clone());
-        if settings.read().confirm_throws && !js::confirm(&format!("Throw turnout {name}?")) {
-            return;
-        }
-        bus.act(|d, _| match pos {
-            Some(p) => d.throw(&id, p),
-            None => d.toggle(&id),
+        let ask = settings.read().confirm_throws;
+        spawn(async move {
+            if ask && !platform::confirm(&format!("Throw turnout {name}?")).await {
+                return;
+            }
+            bus.act(|d, _| match pos {
+                Some(p) => d.throw(&id, p),
+                None => d.toggle(&id),
+            });
         });
     };
 
@@ -82,8 +81,16 @@ pub fn PanelView() -> Element {
                             let shown = st.pending.unwrap_or(st.position);
                             rsx! {
                                 div { class: "row",
-                                    span { class: "name", title: "{t.id}",
-                                        if t.name.is_empty() { "{t.id}" } else { "{t.name}" }
+                                    span { class: "name", title: "{t.id}", "{t.display_name()}" }
+                                    if let Some((p, _)) = layout.linked_partner(&t.id) {
+                                        span { class: "link-badge", title: "Thrown together with {p}", "⇄ {p}" }
+                                    }
+                                    if st.stalled {
+                                        span {
+                                            class: "badge warn",
+                                            title: "The last command was not confirmed by the turnout's feedback sensor",
+                                            "no feedback"
+                                        }
                                     }
                                     span { class: if st.pending.is_some() { "badge pending" } else { "badge" },
                                         "{position_label(shown)}"
@@ -121,9 +128,7 @@ pub fn PanelView() -> Element {
                             rsx! {
                                 div { class: "row",
                                     span { class: "{cls}" }
-                                    span { class: "name", title: "{b.id}",
-                                        if b.name.is_empty() { "{b.id}" } else { "{b.name}" }
-                                    }
+                                    span { class: "name", title: "{b.id}", "{b.display_name()}" }
                                     span { class: "muted small", "{label}" }
                                 }
                             }
