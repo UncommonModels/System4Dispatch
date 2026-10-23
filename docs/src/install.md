@@ -58,6 +58,9 @@ web server. USB serial in the browser only works over **https** (or on
 
 ## Nightly builds
 
-Untested snapshots of the latest code are published as the
-[`nightly` pre-release](https://github.com/UncommonModels/System4Dispatch/releases/tag/nightly),
-with an AppImage and a Flatpak. Use a numbered release for operating sessions.
+Every day at 5am US Eastern, if anything changed, the latest code is built for
+every platform above and published as the
+[`nightly` pre-release](https://github.com/UncommonModels/System4Dispatch/releases/tag/nightly)
+(file names contain `nightly-YYYYMMDD` instead of a version). Nightlies are
+untested snapshots for trying new features; use a numbered release for
+operating sessions.

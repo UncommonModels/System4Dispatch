@@ -1,15 +1,23 @@
 # Prebuilt System4Dispatch downloads.
 #
-# Pushing a tag like `v0.2.0` builds the desktop app for each platform (plus a
-# Flatpak and a self-hostable copy of the web app) and attaches everything,
-# with SHA256SUMS, to a GitHub release for that tag. Running the workflow by
-# hand builds the same files as workflow artifacts without publishing
-# anything, which is handy for testing.
+# - Pushing a tag like `v0.2.0` builds the desktop app for each platform (plus
+#   a Flatpak and a self-hostable copy of the web app) and attaches
+#   everything, with SHA256SUMS, to a GitHub release for that tag.
+# - nightly.yml calls this with `channel: nightly` to replace the `nightly`
+#   pre-release with a fresh build of main.
+# - Running it by hand builds the same files as workflow artifacts without
+#   publishing anything (a dry run).
 name: Release
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      channel:
+        description: "release (tags), nightly, or dev (dry run)"
+        type: string
+        default: dev
 
 permissions:
   contents: write
@@ -31,8 +39,12 @@ jobs:
     steps:
       - name: Version
         shell: bash
-        # The tag for releases, dev-<sha> for manual test runs.
-        run: echo "VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}" | cut -c1-80 | sed -E 's/^(VERSION=dev-.{7}).*/\1/' >> "$GITHUB_ENV"
+        # The tag for releases, nightly-<date> for nightlies, dev-<sha> for dry runs.
+        run: |
+          if [ "${{ inputs.channel }}" = "nightly" ]; then v="nightly-$(date -u +%Y%m%d)"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then v="${{ github.ref_name }}"
+          else v="dev-${GITHUB_SHA::7}"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with: { path: System4Dispatch }
       - uses: actions/checkout@v4
@@ -97,8 +109,12 @@ jobs:
     steps:
       - name: Version
         shell: bash
-        # The tag for releases, dev-<sha> for manual test runs.
-        run: echo "VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}" | cut -c1-80 | sed -E 's/^(VERSION=dev-.{7}).*/\1/' >> "$GITHUB_ENV"
+        # The tag for releases, nightly-<date> for nightlies, dev-<sha> for dry runs.
+        run: |
+          if [ "${{ inputs.channel }}" = "nightly" ]; then v="nightly-$(date -u +%Y%m%d)"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then v="${{ github.ref_name }}"
+          else v="dev-${GITHUB_SHA::7}"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { name: desktop-app-dir, path: packaging/flatpak }
@@ -127,8 +143,12 @@ jobs:
     steps:
       - name: Version
         shell: bash
-        # The tag for releases, dev-<sha> for manual test runs.
-        run: echo "VERSION=${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}" | cut -c1-80 | sed -E 's/^(VERSION=dev-.{7}).*/\1/' >> "$GITHUB_ENV"
+        # The tag for releases, nightly-<date> for nightlies, dev-<sha> for dry runs.
+        run: |
+          if [ "${{ inputs.channel }}" = "nightly" ]; then v="nightly-$(date -u +%Y%m%d)"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then v="${{ github.ref_name }}"
+          else v="dev-${GITHUB_SHA::7}"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with: { path: System4Dispatch }
       - uses: actions/checkout@v4
@@ -152,7 +172,7 @@ jobs:
 
   publish:
     needs: [desktop, flatpak, web]
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || inputs.channel == 'nightly'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -160,7 +180,18 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Publish nightly pre-release
+        if: inputs.channel == 'nightly'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete nightly --cleanup-tag --yes || true
+          gh release create nightly dist/* --prerelease --target "$GITHUB_SHA" \
+            --title "Nightly $(date -u +%Y-%m-%d)" \
+            --notes "Automated testing build of \`${GITHUB_SHA::7}\` from $(date -u '+%Y-%m-%d %H:%M UTC'), for every platform. Untested: use a numbered release for operating sessions. See https://www.uncommonmodels.com/System4Dispatch/docs/install.html for which file to download."
       - name: Publish release
+        if: github.ref_type == 'tag' && inputs.channel != 'nightly'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
