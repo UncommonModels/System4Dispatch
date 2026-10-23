@@ -36,3 +36,4 @@ rustc-ice-*.txt
 
 # mdBook output
 /docs/book/
+__pycache__/
