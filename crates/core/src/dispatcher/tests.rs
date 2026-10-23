@@ -535,3 +535,143 @@ fn controller_changing_notify_is_acknowledged_and_releases_the_throttle() {
         Message::TractionReply { dest, payload } if *dest == train && Reply::decode(payload) == Reply::ControllerChanged { result: 0 })),
         "{replies:?}");
 }
+
+fn table(b: &Bench) -> TurntableStatus {
+    b.d.turntables["TT1"]
+}
+
+fn status_at(position: usize) -> TurntableStatus {
+    TurntableStatus {
+        position: Some(position),
+        pending: None,
+        stalled: false,
+    }
+}
+
+#[test]
+fn turntable_steps_and_confirms() {
+    let mut b = Bench::new(); // demo TT1: every track has feedback
+    b.run(500);
+    // The simulated bridge starts at the first track, learned from feedback.
+    assert_eq!(table(&b), status_at(0));
+    assert!(b.d.step_turntable("TT1", true));
+    assert_eq!(table(&b).pending, Some(1));
+    b.run(1_000);
+    assert_eq!(table(&b), status_at(1));
+    // Counter-clockwise past the start wraps round to the last track (the lead).
+    assert!(b.d.step_turntable("TT1", false));
+    assert!(b.d.step_turntable("TT1", false));
+    assert_eq!(table(&b).pending, Some(7));
+    b.run(2_000);
+    assert_eq!(table(&b), status_at(7));
+    assert_eq!(b.s.turntable_position("TT1"), Some(7));
+}
+
+#[test]
+fn turn_to_takes_the_short_way() {
+    let mut b = Bench::new();
+    b.run(500);
+    let n = b.d.layout().turntables[0].tracks.len();
+    // From track 0 to track 6 of 8 is two steps counter-clockwise.
+    assert!(b.d.turn_to("TT1", 6));
+    assert_eq!(table(&b).pending, Some(6));
+    b.run(600);
+    // Passing track 7 on the way: still turning.
+    assert_eq!(table(&b).position, Some(n - 1));
+    assert_eq!(table(&b).pending, Some(6));
+    b.run(1_000);
+    assert_eq!(table(&b), status_at(6));
+    assert_eq!(b.s.turntable_position("TT1"), Some(6));
+    // Already there: nothing to send.
+    assert!(b.d.turn_to("TT1", 6));
+    assert_eq!(table(&b), status_at(6));
+    assert!(!b.d.turn_to("TT1", 99));
+}
+
+#[test]
+fn turntable_without_feedback_needs_its_position_set() {
+    let mut layout = Layout::demo();
+    for tr in &mut layout.turntables[0].tracks {
+        tr.feedback_event = None;
+    }
+    let mut b = Bench::with_layout(layout);
+    b.run(500);
+    assert_eq!(table(&b).position, None);
+    // Without a known position, only single steps can be sent.
+    assert!(!b.d.turn_to("TT1", 3));
+    assert!(b.d.step_turntable("TT1", true));
+    assert_eq!(table(&b).position, None);
+    b.run(1_000);
+    assert_eq!(b.s.turntable_position("TT1"), Some(1));
+    b.d.set_turntable_position("TT1", Some(1));
+    assert!(b.d.turn_to("TT1", 3));
+    assert_eq!(table(&b), status_at(3));
+    b.run(2_000);
+    assert_eq!(b.s.turntable_position("TT1"), Some(3));
+    // Offline: refused, and the position is forgotten.
+    b.d.link_down();
+    assert!(!b.d.step_turntable("TT1", true));
+    assert_eq!(table(&b), TurntableStatus::default());
+}
+
+#[test]
+fn turntable_stepped_by_someone_else_is_followed() {
+    let mut b = Bench::new();
+    let n = b.add_node(other_panel(1));
+    b.run(500);
+    let cw = b.d.layout().turntables[0].cw_event.unwrap();
+    b.nodes[n].send(Message::Pcer(cw));
+    b.run(20);
+    assert_eq!(table(&b).pending, Some(1));
+    b.run(1_000);
+    assert_eq!(table(&b), status_at(1));
+}
+
+#[test]
+fn turntable_without_confirmation_stalls() {
+    let mut b = Bench::new();
+    b.run(500);
+    let mut layout = b.d.layout().clone();
+    for (i, tr) in layout.turntables[0].tracks.iter_mut().enumerate() {
+        tr.feedback_event = Some(ev(0x100 + i as u64));
+    }
+    b.d.set_layout(layout);
+    b.d.set_turntable_position("TT1", Some(0));
+    assert!(b.d.step_turntable("TT1", true));
+    b.run(TURNTABLE_TIMEOUT_MS - 1_000);
+    assert_eq!(table(&b).pending, Some(1));
+    b.run(2_000);
+    assert_eq!(table(&b).pending, None);
+    assert!(table(&b).stalled);
+}
+
+#[test]
+fn switches_with_two_turnouts_step_through_routes() {
+    use crate::Shape;
+    let mut b = Bench::new();
+    b.run(500);
+    // Any two turnouts will do: T1 has feedback, T3 doesn't.
+    let n = Position::Normal;
+    let r = Position::Reverse;
+    assert_eq!(b.d.pair_positions("T1", "T3"), (n, n));
+    // 3-way: straight -> left -> right -> straight.
+    assert_eq!(b.d.next_route(Shape::ThreeWay, "T1", "T3"), Some((r, n)));
+    b.run(1_000);
+    assert_eq!(b.s.turnout_position("T1"), Some(r));
+    assert_eq!(b.d.next_route(Shape::ThreeWay, "T1", "T3"), Some((n, r)));
+    b.run(1_000);
+    assert_eq!(b.s.turnout_position("T1"), Some(n));
+    assert_eq!(b.s.turnout_position("T3"), Some(r));
+    assert_eq!(b.d.next_route(Shape::ThreeWay, "T1", "T3"), Some((n, n)));
+    b.run(1_000);
+    // Double slip: four routes, ending with both reversed.
+    for want in [(r, n), (n, r), (r, r), (n, n)] {
+        assert_eq!(b.d.next_route(Shape::DoubleSlip, "T1", "T3"), Some(want));
+        b.run(1_000);
+        assert_eq!(b.d.pair_positions("T1", "T3"), want);
+    }
+    // A position combination that isn't a route starts again at the first.
+    assert!(b.d.set_pair("T1", "T3", (n, r)));
+    b.run(1_000);
+    assert_eq!(b.d.next_route(Shape::SingleSlip, "T1", "T3"), Some((n, n)));
+}

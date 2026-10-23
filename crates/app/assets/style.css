@@ -129,7 +129,7 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; 
 /* Track drawing */
 .track-svg { width: 100%; height: auto; display: block; touch-action: manipulation; }
 .track-svg.editing { touch-action: none; user-select: none; }
-.track { fill: none; stroke-width: .2; stroke-linecap: round; }
+.track { fill: none; stroke-width: .2; stroke-linecap: butt; stroke-linejoin: miter; stroke-miterlimit: 4; }
 .occ-clear { stroke: var(--track-clear); }
 .occ-occupied { stroke: var(--track-occupied); }
 .occ-unknown { stroke: var(--track-unknown); }
@@ -141,6 +141,19 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; 
 .label { fill: var(--label); font-size: .55px; font-weight: 600; }
 .hit { fill: transparent; cursor: pointer; }
 .hit:hover { fill: color-mix(in srgb, var(--accent) 25%, transparent); }
+.tt-pit { fill: color-mix(in srgb, var(--track-none) 14%, transparent); stroke: var(--track-none); stroke-width: .05; }
+.tt-head { fill: var(--text); stroke: none; }
+.portal-arrow { fill: none; stroke-width: .12; stroke-linejoin: miter; }
+.portal-arrow.unassigned, .portal-arrow.occ-none { stroke: var(--track-none); }
+.portal-name { fill: var(--label); font-size: .38px; font-weight: 700; text-anchor: middle; pointer-events: none; }
+.stall-house { fill: color-mix(in srgb, var(--track-none) 18%, transparent); stroke: var(--track-none); stroke-width: .04; stroke-linejoin: round; }
+.tt-hit:hover { fill: color-mix(in srgb, var(--accent) 18%, transparent); }
+.tt-positions { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 0 4px; }
+.tt-positions button { padding: 4px 8px; font-size: 13px; }
+.tt-positions button.on { border-color: var(--accent); color: var(--accent); }
+.tt-positions button.pending { border-color: var(--warn); color: var(--warn); }
+.tt-at { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; font-size: 13px; }
+.tt-at select { flex: 1; margin: 0; }
 .grid-line { stroke: var(--grid); stroke-width: .03; }
 .cell { fill: transparent; cursor: crosshair; }
 .cell:hover { fill: color-mix(in srgb, var(--accent) 20%, transparent); }
@@ -152,6 +165,11 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; 
 /* Panel view */
 .panel-view { display: grid; grid-template-columns: 1fr 300px; gap: 12px; align-items: start; }
 .panel-board { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; min-width: 0; }
+.panel-scroll { overflow: auto; max-height: calc(100vh - 170px); min-height: 160px; cursor: grab; overscroll-behavior: contain; }
+.panel-scroll.panning, .ed-canvas.panning { cursor: grabbing; user-select: none; }
+.panel-scroll .track-svg { margin: 0 auto; }
+.zoom-bar { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 2px; box-shadow: 0 1px 3px rgb(0 0 0 / 8%); }
+.zoom-bar .icon-btn { min-width: 30px; }
 .panel-side section { padding: 10px 12px; }
 .row { display: flex; align-items: center; gap: 8px; min-height: 40px; border-bottom: 1px solid var(--border); }
 .row:last-child { border-bottom: 0; }
@@ -292,7 +310,7 @@ kbd { font: 12px ui-monospace, Menlo, Consolas, monospace; padding: 1px 5px; bor
 .ed-body { display: grid; grid-template-columns: 52px 1fr 320px; min-height: 0; }
 .ed-rail {
   display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0;
-  background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto;
+  background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; min-height: 0;
 }
 .rail-btn {
   width: 38px; height: 38px; padding: 0; display: grid; place-items: center; flex: none;
@@ -302,6 +320,12 @@ kbd { font: 12px ui-monospace, Menlo, Consolas, monospace; padding: 1px 5px; bor
 .rail-btn.on { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); color: var(--accent); }
 .rail-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .rail-btn .shape-icon path { stroke-width: .14; }
+.rail-btn .shape-icon path.icon-fill { stroke-width: .07; fill: color-mix(in srgb, currentColor 15%, transparent); }
+.rail-btn .shape-icon path.icon-thin { stroke-width: .08; fill: none; }
+.tt-track { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.tt-track .tt-angle { width: 64px; margin: 0; }
+.tt-track .tt-name { flex: 1; min-width: 0; margin: 0; }
+.tt-track label.check { margin: 0; font-size: 13px; gap: 4px; }
 .rail-text { font-weight: 700; font-size: 17px; font-family: Georgia, serif; }
 .rail-sep { width: 24px; height: 1px; background: var(--border); margin: 4px 0; flex: none; }
 

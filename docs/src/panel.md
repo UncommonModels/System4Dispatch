@@ -4,6 +4,10 @@ The **Panel** tab is the dispatcher's view of the railroad: the track diagram on
 
 If the layout has no track yet, the panel says so and points you to the Editor. If the panel isn't Online, a banner across the diagram says "Not connected. Turnouts can't be thrown and states may be stale."
 
+## Zooming and scrolling
+
+The diagram starts fitted to the window. Use **+** and **−** in its top-right corner, or **Ctrl+wheel** (a pinch on a trackpad), to zoom; **Fit** goes back to fitting the window. When zoomed in, **drag** the diagram (or use the scroll bars, or swipe on a touch screen) to move around. A drag never throws a turnout; only a click does.
+
 ## Track colours
 
 Each piece of track is drawn according to the block it belongs to:
@@ -70,6 +74,24 @@ Some turnouts must always move together. The classic case is a **crossover**: tw
 - A link can be marked **opposite**, in which case the partner goes to the other position (normal when this one goes reverse, and the other way round). This suits pairs wired so that one's "normal" corresponds to the other's "reverse".
 
 Each turnout can be linked to at most one other. See [Linking turnouts](editor.md#linking-turnouts) for how to set it up.
+
+## Turntables
+
+A turntable is drawn as its pit, roundhouse and tracks, with the bridge across the pit; the arrowhead marks the bridge's head end.
+
+- **⟲** and **⟳** next to its name in the side list turn it one track counter-clockwise or clockwise, sending the turntable's step events, just like throwing a turnout.
+- **Click a track** on the drawing (a wedge lights up as you hover) or press its button in the side list to turn there. The panel sends as many steps as it takes the short way round.
+- **Bridge is at** tells the panel where the bridge is. The panel needs to know this before it can turn to a track, because it counts steps; if the tracks have *arrived* events, it learns the position by itself when it connects.
+
+While the bridge is moving to a track with an *arrived* event, the side list shows **Turning…** and the target is drawn faintly, blinking. If it doesn't arrive within 90 seconds the turntable is marked **no feedback**. With *Confirm before throwing* on, the panel asks first.
+
+## 3-way switches and slips
+
+A 3-way switch or slip shows its set route bright and the others dim. Click it to step to the next route; the panel throws its two turnouts (the one going to normal first). Each turnout also has its own row in the Turnouts list. A crossing or slip whose two tracks are in different blocks shows each track's occupancy separately.
+
+## Portals
+
+An arrow with a name marks a track that leaves here and carries on at the other arrow with the same name, often on the opposite edge of the panel.
 
 ## The bus monitor
 

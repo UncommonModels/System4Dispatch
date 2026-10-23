@@ -35,6 +35,12 @@
       "name": "Yard",
       "occupied_event": "05.01.01.01.22.00.00.18",
       "clear_event": "05.01.01.01.22.00.00.19"
+    },
+    {
+      "id": "B6",
+      "name": "Engine Terminal",
+      "occupied_event": "05.01.01.01.22.00.00.1A",
+      "clear_event": "05.01.01.01.22.00.00.1B"
     }
   ],
   "turnouts": [
@@ -63,6 +69,70 @@
       "name": "Yard Lead",
       "normal_event": "05.01.01.01.22.00.01.04",
       "reverse_event": "05.01.01.01.22.00.01.05"
+    },
+    {
+      "id": "T4",
+      "name": "Engine Terminal Lead",
+      "normal_event": "05.01.01.01.22.00.01.06",
+      "reverse_event": "05.01.01.01.22.00.01.07"
+    }
+  ],
+  "turntables": [
+    {
+      "id": "TT1",
+      "name": "Hilltown Turntable",
+      "size": 2,
+      "cw_event": "05.01.01.01.22.00.02.00",
+      "ccw_event": "05.01.01.01.22.00.02.01",
+      "tracks": [
+        {
+          "angle": 75,
+          "name": "Stall 1",
+          "stall": true,
+          "feedback_event": "05.01.01.01.22.00.02.10"
+        },
+        {
+          "angle": 95,
+          "name": "Stall 2",
+          "stall": true,
+          "feedback_event": "05.01.01.01.22.00.02.11"
+        },
+        {
+          "angle": 115,
+          "name": "Stall 3",
+          "stall": true,
+          "feedback_event": "05.01.01.01.22.00.02.12"
+        },
+        {
+          "angle": 135,
+          "name": "Stall 4",
+          "stall": true,
+          "feedback_event": "05.01.01.01.22.00.02.13"
+        },
+        {
+          "angle": 155,
+          "name": "Stall 5",
+          "stall": true,
+          "feedback_event": "05.01.01.01.22.00.02.14"
+        },
+        {
+          "angle": 175,
+          "name": "Stall 6",
+          "stall": true,
+          "feedback_event": "05.01.01.01.22.00.02.15"
+        },
+        {
+          "angle": 195,
+          "name": "Stall 7",
+          "stall": true,
+          "feedback_event": "05.01.01.01.22.00.02.16"
+        },
+        {
+          "angle": 315,
+          "name": "Lead",
+          "feedback_event": "05.01.01.01.22.00.02.17"
+        }
+      ]
     }
   ],
   "elements": [
@@ -143,9 +213,10 @@
       "type": "track",
       "x": 10,
       "y": 6,
-      "shape": "straight",
+      "shape": "turnout_right",
       "rot": 0,
-      "block": "B2"
+      "block": "B2",
+      "turnout": "T4"
     },
     {
       "type": "track",
@@ -492,6 +563,29 @@
       "x": 27,
       "y": 9,
       "text": "Yard"
+    },
+    {
+      "type": "track",
+      "x": 11,
+      "y": 7,
+      "shape": "straight",
+      "rot": 1,
+      "block": "B6"
+    },
+    {
+      "type": "track",
+      "x": 12,
+      "y": 8,
+      "shape": "turntable",
+      "rot": 0,
+      "block": "B6",
+      "turntable": "TT1"
+    },
+    {
+      "type": "label",
+      "x": 15,
+      "y": 10,
+      "text": "Engine house"
     }
   ]
 }

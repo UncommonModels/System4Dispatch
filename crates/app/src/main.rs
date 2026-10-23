@@ -9,6 +9,7 @@ mod bus;
 mod platform;
 mod storage;
 mod track;
+mod zoom;
 mod views {
     pub mod editor;
     pub mod help;

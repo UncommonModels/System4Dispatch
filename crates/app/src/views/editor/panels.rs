@@ -5,13 +5,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dioxus::prelude::*;
 use rolcb::EventId;
-use s4d_core::layout::{Block, Feedback, Turnout};
+use s4d_core::layout::{Block, Feedback, Turnout, Turntable, TurntableTrack, DIR_NAMES};
 use s4d_core::{Element as Tile, Layout, Shape};
 
 use super::ops::*;
 use super::{EditorState, PanelTab, Tool};
 use crate::bus::Bus;
 use crate::Draft;
+
+fn pos_letter(p: s4d_core::Position) -> &'static str {
+    match p {
+        s4d_core::Position::Reverse => "R",
+        _ => "N",
+    }
+}
 
 fn ev_str(e: Option<EventId>) -> String {
     e.map(|e| e.to_string()).unwrap_or_default()
@@ -79,15 +86,15 @@ fn LayoutProperties(
             }
             div { class: "field-row",
                 label { class: "field", span { "Columns" }
-                    input { r#type: "number", min: "{min_cols.max(4)}", max: "200", value: "{layout.grid.cols}",
+                    input { r#type: "number", min: "{min_cols.max(4)}", max: "400", value: "{layout.grid.cols}",
                         onchange: move |e| if let Ok(v) = e.value().parse::<u16>() {
-                            edit_draft(draft, bus, |l| { let (c, _) = used_extent(l); l.grid.cols = v.clamp(c.max(4), 200) })
+                            edit_draft(draft, bus, |l| { let (c, _) = used_extent(l); l.grid.cols = v.clamp(c.max(4), 400) })
                         } }
                 }
                 label { class: "field", span { "Rows" }
-                    input { r#type: "number", min: "{min_rows.max(4)}", max: "200", value: "{layout.grid.rows}",
+                    input { r#type: "number", min: "{min_rows.max(4)}", max: "400", value: "{layout.grid.rows}",
                         onchange: move |e| if let Ok(v) = e.value().parse::<u16>() {
-                            edit_draft(draft, bus, |l| { let (_, r) = used_extent(l); l.grid.rows = v.clamp(r.max(4), 200) })
+                            edit_draft(draft, bus, |l| { let (_, r) = used_extent(l); l.grid.rows = v.clamp(r.max(4), 400) })
                         } }
                 }
             }
@@ -113,7 +120,7 @@ fn LayoutProperties(
             summary { "Keyboard shortcuts" }
             dl { class: "shortcuts",
                 dt { kbd { "V" } } dd { "Select" }
-                dt { kbd { "1" } "–" kbd { "8" } } dd { "Track pieces" }
+                dt { kbd { "1" } "–" kbd { "9" } } dd { "Track pieces" }
                 dt { kbd { "T" } " " kbd { "E" } } dd { "Label, Erase" }
                 dt { kbd { "R" } } dd { "Rotate (Shift+R back)" }
                 dt { kbd { "←↑→↓" } } dd { "Move selection" }
@@ -166,10 +173,27 @@ fn TileProperties(el: Tile, layout: Layout, colors: BTreeMap<String, String>) ->
             shape,
             rot,
             block,
+            block2,
             turnout,
+            turnout2,
+            turntable,
+            portal,
             ..
         } => {
+            let block_label: &'static str = if shape.has_two_tracks() {
+                "Block (W–E track)"
+            } else {
+                "Block"
+            };
             let turnout_v = turnout.clone().unwrap_or_default();
+            let turnout2_v = turnout2.clone().unwrap_or_default();
+            let portal_v = portal.clone().unwrap_or_default();
+            let other_end = layout.portal_partner(x, y);
+            let turntable_v = turntable.clone().unwrap_or_default();
+            let table = turntable
+                .as_deref()
+                .and_then(|t| layout.turntable(t))
+                .cloned();
             let partner = turnout.as_deref().and_then(|t| layout.linked_partner(t));
             rsx! {
                 div { class: "prop-group",
@@ -186,6 +210,7 @@ fn TileProperties(el: Tile, layout: Layout, colors: BTreeMap<String, String>) ->
                             }
                         }
                     }
+                    if !shape.is_turntable() {
                     div { class: "field", span { "Rotation" }
                         div { class: "stepper",
                             button { class: "icon-btn", title: "Rotate left (Shift+R)", onclick: move |_| update(Box::new(|t| if let Tile::Track { rot, .. } = t { *rot = (*rot % 8 + 7) % 8 })), "⟲" }
@@ -193,13 +218,22 @@ fn TileProperties(el: Tile, layout: Layout, colors: BTreeMap<String, String>) ->
                             button { class: "icon-btn", title: "Rotate right (R)", onclick: move |_| update(Box::new(|t| if let Tile::Track { rot, .. } = t { *rot = (*rot % 8 + 1) % 8 })), "⟳" }
                         }
                     }
+                    }
                     BlockSelect {
-                        label: "Block",
-                        layout: layout.clone(), colors, value: block, mixed: false,
+                        label: block_label,
+                        layout: layout.clone(), colors: colors.clone(), value: block, mixed: false,
                         on_pick: move |v: Option<String>| update(Box::new(move |t| if let Tile::Track { block, .. } = t { *block = v })),
                     }
+                    if shape.has_two_tracks() {
+                        BlockSelect {
+                            label: "Block (other track)",
+                            layout: layout.clone(), colors: colors.clone(), value: block2.clone(), mixed: false,
+                            on_pick: move |v: Option<String>| update(Box::new(move |t| if let Tile::Track { block2, .. } = t { *block2 = v })),
+                        }
+                        p { class: "hint", "The two tracks through a crossing can be in different blocks. Leave the other track on “No block” to use the same block for both." }
+                    }
                     if shape.is_turnout() {
-                        label { class: "field", span { "Turnout" }
+                        label { class: "field", span { if shape.has_two_turnouts() { "Left-hand turnout" } else { "Turnout" } }
                             select {
                                 onchange: move |e| {
                                     let v = Some(e.value()).filter(|v| !v.is_empty());
@@ -214,8 +248,71 @@ fn TileProperties(el: Tile, layout: Layout, colors: BTreeMap<String, String>) ->
                         if let Some((p, inv)) = partner {
                             p { class: "hint", "Thrown together with {p}" if inv { " (opposite position)" } "." }
                         }
+                        if shape.has_two_turnouts() {
+                            label { class: "field", span { "Right-hand turnout" }
+                                select {
+                                    onchange: move |e| {
+                                        let v = Some(e.value()).filter(|v| !v.is_empty());
+                                        update(Box::new(move |t| if let Tile::Track { turnout2, .. } = t { *turnout2 = v }));
+                                    },
+                                    option { value: "", selected: turnout2_v.is_empty(), "— none —" }
+                                    for t in layout.turnouts.iter() {
+                                        option { value: "{t.id}", selected: turnout2_v == t.id, "{t.id}  {t.name}" }
+                                    }
+                                }
+                            }
+                            p { class: "hint",
+                                "Routes (left-hand, right-hand turnout): "
+                                {shape.routes().iter().map(|((a, b), (p, q))| format!("{}/{} sets {}–{}", pos_letter(*a), pos_letter(*b), DIR_NAMES[*p as usize], DIR_NAMES[*q as usize])).collect::<Vec<_>>().join(", ")}
+                                ". Directions are before rotation. Clicking it on the panel steps through them in this order."
+                            }
+                        }
                         if let Some(t) = turnout.clone() {
                             button { class: "text-btn", onclick: move |_| { expanded.set(Some(t.clone())); tab.set(PanelTab::Turnouts); }, "Edit turnout events →" }
+                        }
+                    }
+                    if shape.is_portal() {
+                        label { class: "field", span { "Portal name" }
+                            input { value: "{portal_v}", placeholder: "e.g. A",
+                                onchange: move |e| {
+                                    let v = Some(e.value().trim().to_string()).filter(|v| !v.is_empty());
+                                    update(Box::new(move |t| if let Tile::Track { portal, .. } = t { *portal = v }));
+                                } }
+                        }
+                        match other_end {
+                            Some((ox, oy)) => rsx! {
+                                p { class: "hint", "The track carries on at the other “{portal_v}” portal, at {ox}, {oy}." }
+                                button { class: "text-btn", onclick: move |_| selection.set(BTreeSet::from([(ox, oy)])), "Select the other end" }
+                            },
+                            None => rsx! {
+                                p { class: "hint", "Place another portal (or give one the same name) where this track comes back onto the panel." }
+                            },
+                        }
+                    }
+                    if shape.is_turntable() {
+                        label { class: "field", span { "Turntable" }
+                            select {
+                                onchange: move |e| {
+                                    let v = Some(e.value()).filter(|v| !v.is_empty());
+                                    update(Box::new(move |t| if let Tile::Track { turntable, .. } = t { *turntable = v }));
+                                },
+                                option { value: "", selected: turntable_v.is_empty(), "— none —" }
+                                for t in layout.turntables.iter() {
+                                    option { value: "{t.id}", selected: turntable_v == t.id, "{t.id}  {t.name}" }
+                                }
+                            }
+                        }
+                        if let Some(t) = table {
+                            p { class: "hint",
+                                "{t.tracks.iter().filter(|tr| !tr.stall).count()} leads and {t.tracks.iter().filter(|tr| tr.stall).count()} stalls. R turns the whole turntable."
+                            }
+                            {
+                                let (id1, id2) = (t.id.clone(), t.id.clone());
+                                rsx! {
+                                    button { class: "text-btn", onclick: move |_| { let id = id1.clone(); edit_draft(draft, bus, move |l| { l.add_connected_leads(&id); }); }, "Add leads for connected track" }
+                                    button { class: "text-btn", onclick: move |_| { expanded.set(Some(id2.clone())); tab.set(PanelTab::Turntables); }, "Edit tracks, stalls and events →" }
+                                }
+                            }
                         }
                     }
                     button { class: "text-btn danger", onclick: delete, "Delete tile" }
@@ -362,8 +459,10 @@ pub fn BlocksPanel(
     let last = recent.first().copied();
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
     for el in &layout.elements {
-        if let Tile::Track { block: Some(b), .. } = el {
-            *counts.entry(b.as_str()).or_default() += 1;
+        if let Tile::Track { block, block2, .. } = el {
+            for b in block.iter().chain(block2) {
+                *counts.entry(b.as_str()).or_default() += 1;
+            }
         }
     }
     let unassigned = layout
@@ -441,7 +540,12 @@ pub fn BlocksPanel(
 }
 
 #[component]
-fn SelectTilesButton(block: Option<String>, turnout: Option<String>, count: usize) -> Element {
+fn SelectTilesButton(
+    block: Option<String>,
+    turnout: Option<String>,
+    #[props(default)] turntable: Option<String>,
+    count: usize,
+) -> Element {
     let bus = use_context::<Bus>();
     let draft = use_context::<Draft>().0;
     let st = use_context::<EditorState>();
@@ -453,8 +557,10 @@ fn SelectTilesButton(block: Option<String>, turnout: Option<String>, count: usiz
             onclick: move |_| {
                 let l = current(draft, bus);
                 let cells = l.elements.iter().filter_map(|e| match e {
-                    Tile::Track { x, y, block: b, turnout: t, .. }
-                        if (block.is_some() && *b == block) || (turnout.is_some() && *t == turnout) => Some((*x, *y)),
+                    Tile::Track { x, y, block: b, block2: b2, turnout: t, turntable: tt, .. }
+                        if (block.is_some() && (*b == block || *b2 == block))
+                            || (turnout.is_some() && *t == turnout)
+                            || (turntable.is_some() && *tt == turntable) => Some((*x, *y)),
                     _ => None,
                 }).collect();
                 selection.set(cells);
@@ -599,9 +705,159 @@ fn set_feedback(t: &mut Turnout, v: Option<EventId>, normal: bool) {
     }
 }
 
+// ---- Turntables -------------------------------------------------------------
+
+#[component]
+pub fn TurntablesPanel(layout: Layout, recent: Vec<EventId>) -> Element {
+    let bus = use_context::<Bus>();
+    let draft = use_context::<Draft>().0;
+    let st = use_context::<EditorState>();
+    let (mut expanded, mut tool) = (st.expanded, st.tool);
+    let last = recent.first().copied();
+    let set = move |id: String, f: Box<dyn FnOnce(&mut Turntable)>| {
+        edit_draft(draft, bus, move |l| {
+            if let Some(t) = l.turntables.iter_mut().find(|t| t.id == id) {
+                f(t)
+            }
+        })
+    };
+    // Edit track `i`; re-sorts afterwards in case the angle changed.
+    let set_track = move |id: String, i: usize, f: Box<dyn FnOnce(&mut TurntableTrack)>| {
+        set(
+            id,
+            Box::new(move |t| {
+                if let Some(tr) = t.tracks.get_mut(i) {
+                    f(tr)
+                }
+                t.sort_tracks();
+            }),
+        )
+    };
+    let mut tiles: BTreeMap<&str, usize> = BTreeMap::new();
+    for el in &layout.elements {
+        if let Tile::Track {
+            turntable: Some(t), ..
+        } = el
+        {
+            *tiles.entry(t.as_str()).or_default() += 1;
+        }
+    }
+    rsx! {
+        div { class: "list-head",
+            span { class: "muted", "{layout.turntables.len()} turntables" }
+            button { class: "text-btn", onclick: move |_| tool.set(Tool::Roundhouse), "+ Turntable & roundhouse" }
+        }
+        if layout.turntables.is_empty() {
+            p { class: "hint", "Pick the turntable & roundhouse tool and click where the pit should go, or place a turntable piece at the end of existing track." }
+        }
+        ul { class: "item-list",
+            for t in layout.turntables.iter() {
+                {
+                    let open = expanded() == Some(t.id.clone());
+                    let configured = t.cw_event.is_some() && t.ccw_event.is_some();
+                    let count = tiles.get(t.id.as_str()).copied().unwrap_or(0);
+                    let stalls = t.tracks.iter().filter(|tr| tr.stall).count();
+                    let free_dirs: Vec<u8> = (0..8u8)
+                        .filter(|d| t.tracks.iter().all(|tr| tr.angle != *d as u16 * 45))
+                        .collect();
+                    let id = t.id.clone();
+                    let (i1, i2, i3, i4, i5, i6, i7, i8, i9) = (id.clone(), id.clone(), id.clone(), id.clone(), id.clone(), id.clone(), id.clone(), id.clone(), id.clone());
+                    rsx! {
+                        li { key: "{t.id}", class: if open { "item open" } else { "item" },
+                            div { class: "item-row", onclick: move |_| expanded.set(if open { None } else { Some(i1.clone()) }),
+                                span { class: if configured { "dot ok" } else { "dot" }, title: if configured { "Turn events set" } else { "Turn events missing" } }
+                                span { class: "item-name", "{t.display_name()}" }
+                                span { class: "item-meta", "{t.id} · {stalls} stalls" }
+                                span { class: "chevron", if open { "▾" } else { "▸" } }
+                            }
+                            if open {
+                                div { class: "item-detail",
+                                    label { class: "field", span { "Name" }
+                                        input { value: "{t.name}", placeholder: "e.g. Engine Terminal", onchange: move |e| { let v = e.value(); set(i2.clone(), Box::new(move |t| t.name = v)) } }
+                                    }
+                                    label { class: "field", span { "Pit size (cells)" }
+                                        input { r#type: "number", min: "1", max: "8", value: "{t.size}",
+                                            onchange: move |e| if let Ok(v) = e.value().parse::<u8>() { set(i3.clone(), Box::new(move |t| t.size = v.clamp(1, 8))) } }
+                                    }
+                                    div { class: "field-caption", "Turn" }
+                                    EventField { label: "Clockwise", value: t.cw_event, recent: last, on_set: move |v| set(i4.clone(), Box::new(move |t| t.cw_event = v)) }
+                                    EventField { label: "Counter-clockwise", value: t.ccw_event, recent: last, on_set: move |v| set(i5.clone(), Box::new(move |t| t.ccw_event = v)) }
+                                    p { class: "hint", "Each event turns the bridge one track on, like throwing a turnout. Tracks are stops in clockwise order from north." }
+                                    div { class: "field-caption", "Tracks" }
+                                    for (i, tr) in t.tracks.iter().enumerate() {
+                                        {
+                                            let (a, b, c, d, f) = (id.clone(), id.clone(), id.clone(), id.clone(), id.clone());
+                                            rsx! {
+                                                div { class: "tt-track",
+                                                    input { class: "tt-angle", r#type: "number", min: "0", max: "359", value: "{tr.angle}", title: "Angle in degrees, clockwise from north",
+                                                        onchange: move |e| if let Ok(v) = e.value().parse::<u16>() { set_track(a.clone(), i, Box::new(move |tr| tr.angle = v % 360)) } }
+                                                    span { class: "muted", "°" }
+                                                    input { class: "tt-name", value: "{tr.name}", placeholder: if tr.stall { "Stall" } else { "Lead" },
+                                                        onchange: move |e| { let v = e.value(); set_track(b.clone(), i, Box::new(move |tr| tr.name = v)) } }
+                                                    label { class: "check", title: "Drawn inside the roundhouse",
+                                                        input { r#type: "checkbox", checked: tr.stall, onchange: move |e| { let on = e.checked(); set_track(c.clone(), i, Box::new(move |tr| tr.stall = on)) } }
+                                                        "Stall"
+                                                    }
+                                                    button { class: "icon-btn", title: "Remove this track", onclick: move |_| set(d.clone(), Box::new(move |t| { t.tracks.remove(i); })), "✕" }
+                                                }
+                                                EventField { label: "Arrived (optional)", value: tr.feedback_event, recent: last, on_set: move |v| set_track(f.clone(), i, Box::new(move |tr| tr.feedback_event = v)) }
+                                            }
+                                        }
+                                    }
+                                    div { class: "row-actions",
+                                        button { class: "text-btn", onclick: move |_| set(i6.clone(), Box::new(|t| {
+                                            let a = t.free_stall_angle();
+                                            let n = t.tracks.iter().filter(|tr| tr.stall).count() + 1;
+                                            t.add_track(a, &format!("Stall {n}"), true);
+                                        })), "+ Stall" }
+                                        if !free_dirs.is_empty() {
+                                            select {
+                                                onchange: move |e| if let Ok(d) = e.value().parse::<u16>() {
+                                                    set(i7.clone(), Box::new(move |t| { t.add_track(d * 45, "Lead", false); }))
+                                                },
+                                                option { value: "", selected: true, disabled: true, "+ Lead…" }
+                                                for d in free_dirs.iter() {
+                                                    option { value: "{d}", "{DIR_NAMES[*d as usize]}" }
+                                                }
+                                            }
+                                        }
+                                        button { class: "text-btn", title: "Add a lead for every track that runs into the pit", onclick: move |_| { let id = i8.clone(); edit_draft(draft, bus, move |l| { l.add_connected_leads(&id); }); }, "Connected leads" }
+                                    }
+                                    div { class: "row-actions",
+                                        SelectTilesButton { block: None, turnout: None, turntable: Some(id.clone()), count }
+                                        button { class: "text-btn danger", onclick: move |_| { let id = i9.clone(); edit_draft(draft, bus, |l| { l.remove_turntable(&id); }); }, "Delete" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        RecentEvents { recent }
+    }
+}
+
 /// Small preview of a tile shape, for the tool rail.
 #[component]
 pub fn ShapeIcon(shape: Shape, rot: u8) -> Element {
+    if shape == Shape::Turntable {
+        return rsx! {
+            svg { class: "shape-icon", "viewBox": "-0.1 -0.1 1.2 1.2",
+                path { class: "icon-fill", "d": "{crate::track::circle_path(0.5, 0.5, 0.42)}" }
+                path { "d": "M0.18 0.5 L0.82 0.5" }
+            }
+        };
+    }
+    if shape == Shape::Portal {
+        let (track, arrow) = crate::track::portal_paths(0, 0, rot);
+        return rsx! {
+            svg { class: "shape-icon", "viewBox": "-0.1 -0.1 1.2 1.2",
+                path { "d": "{track}" }
+                path { class: "icon-thin", "d": "{arrow}" }
+            }
+        };
+    }
     let legs = shape.legs().rotated(rot);
     let segs: Vec<_> = legs
         .fixed
@@ -613,7 +869,7 @@ pub fn ShapeIcon(shape: Shape, rot: u8) -> Element {
     rsx! {
         svg { class: "shape-icon", "viewBox": "-0.1 -0.1 1.2 1.2",
             for s in segs {
-                path { "d": "{crate::track::seg_path(0, 0, s)}" }
+                path { "d": "{crate::track::leg_path(shape, 0, 0, s)}" }
             }
         }
     }

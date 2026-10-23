@@ -1,7 +1,8 @@
 //! System4Dispatch core: everything that isn't UI or I/O.
 //!
 //! * [`layout`]: the panel file format, track geometry and editor operations.
-//! * [`dispatcher`]: block/turnout state and throttles over a `rolcb::Node`.
+//! * [`dispatcher`]: block, turnout and turntable state and throttles over
+//!   a `rolcb::Node`.
 //! * [`sim`]: a simulated layout and command station for demos and tests.
 //! * [`testing`]: a virtual bench that wires a dispatcher to a simulator.
 //!
@@ -41,7 +42,9 @@ pub mod testing;
 
 pub use dispatcher::{
     Dispatcher, FailReason, LinkState, Occupancy, Position, Throttle, ThrottleState, TurnoutStatus,
+    TurntableStatus,
 };
 pub use layout::{
-    Block, Element, Feedback, Grid, Issue, Layout, MoveError, Shape, Turnout, FORMAT_VERSION,
+    Block, Element, Feedback, Grid, Issue, Layout, MoveError, RouteError, Shape, Turnout,
+    Turntable, TurntableTrack, FORMAT_VERSION,
 };

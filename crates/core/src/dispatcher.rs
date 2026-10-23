@@ -34,6 +34,8 @@
 //! | Turnout feedback (`normal`/`reverse`) | position := that; clears `stalled`, and `pending` if it matches | same as PCER | — | — | — |
 //! | Turnout command, no feedback | position := that | position := that | — | — | position := that |
 //! | Turnout command, with feedback | `pending` := that (someone else threw it) | — | — | — | — |
+//! | Turntable track `feedback_event` | position := that track; clears `stalled`, and `pending` if it matches | same as PCER | — | — | — |
+//! | Turntable `cw_event` / `ccw_event` | the bridge moves one track on from where it was going (someone else turned it) | — | — | — | — |
 //!
 //! Producer Identified on a *command* event is state, not an action: rolcb
 //! announces every producer at login, so another panel or JMRI joining the
@@ -45,6 +47,16 @@
 //! if the points were already there, the Valid reply confirms it. If no
 //! confirmation arrives within 5 s, `pending` is dropped and
 //! [`TurnoutStatus::stalled`] is set until the next real feedback.
+//!
+//! Turntables are driven like a turnout with two events: each `cw_event`
+//! moves the bridge one track clockwise and each `ccw_event` one track
+//! counter-clockwise, so the dispatcher counts steps to know where it is.
+//! [`Dispatcher::turn_to`] sends the shortest run of steps to a track.
+//! Arriving at a track with a `feedback_event` is waited for (up to
+//! [`TURNTABLE_TIMEOUT_MS`], since bridges are slow); a track without
+//! feedback is assumed reached. Until a feedback event or
+//! [`Dispatcher::set_turntable_position`] says where the bridge is, its
+//! position is unknown and only single steps can be sent.
 //!
 //! The dispatcher's own consumer states for block events follow the known
 //! occupancy, so other nodes asking Identify Consumer get a truthful answer.
@@ -97,6 +109,8 @@ const SEARCH_TIMEOUT_MS: u64 = 5_000;
 const ASSIGN_TIMEOUT_MS: u64 = 3_000;
 /// How long a thrown turnout with feedback may stay pending.
 pub const PENDING_TIMEOUT_MS: u64 = 5_000;
+/// How long a turntable may take to reach a position with feedback.
+pub const TURNTABLE_TIMEOUT_MS: u64 = 90_000;
 const TRAFFIC_LINES: usize = 300;
 
 /// What is known about a block.
@@ -143,6 +157,25 @@ pub struct TurnoutStatus {
     /// The last command was not confirmed by feedback in time. Cleared by
     /// the next feedback report.
     pub stalled: bool,
+}
+
+/// What is known about a turntable. Positions are indexes into its
+/// [`tracks`](crate::layout::Turntable::tracks): the track the bridge's head
+/// end lines up with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TurntableStatus {
+    /// Last known position (from feedback, counted steps, or set by hand).
+    pub position: Option<usize>,
+    /// Track the bridge is turning to, still waiting for feedback.
+    pub pending: Option<usize>,
+    /// The last command was not confirmed by feedback in time. Cleared by
+    /// the next feedback report.
+    pub stalled: bool,
+}
+
+/// How many tracks turntable `id` has in `layout`, if it exists.
+fn old_layout_tracks(layout: &Layout, id: &str) -> Option<usize> {
+    layout.turntable(id).map(|t| t.tracks.len())
 }
 
 /// The state of the dispatcher's connection to the bus.
@@ -242,6 +275,8 @@ enum Action {
     FeedbackReverse(String),
     CommandNormal(String),
     CommandReverse(String),
+    TurntableStep(String, bool),
+    TurntableFeedback(String, usize),
 }
 
 /// How an event was reported on the bus.
@@ -262,6 +297,8 @@ pub struct Dispatcher {
     pub blocks: BTreeMap<String, Occupancy>,
     /// Status of every turnout in the layout, by turnout id.
     pub turnouts: BTreeMap<String, TurnoutStatus>,
+    /// Status of every turntable in the layout, by turntable id.
+    pub turntables: BTreeMap<String, TurntableStatus>,
     /// Open throttles, oldest first.
     pub throttles: Vec<Throttle>,
     next_throttle: u32,
@@ -310,6 +347,7 @@ impl Dispatcher {
             index: BTreeMap::new(),
             blocks: BTreeMap::new(),
             turnouts: BTreeMap::new(),
+            turntables: BTreeMap::new(),
             throttles: Vec::new(),
             next_throttle: 1,
             link_up: false,
@@ -405,6 +443,24 @@ impl Dispatcher {
                 }
             }
         }
+        for t in &layout.turntables {
+            for (e, cw) in [(t.cw_event, true), (t.ccw_event, false)] {
+                add(&mut self.index, e, Action::TurntableStep(t.id.clone(), cw));
+                if let Some(e) = e {
+                    self.node.add_producer(e, EventState::Unknown);
+                }
+            }
+            for (i, tr) in t.tracks.iter().enumerate() {
+                add(
+                    &mut self.index,
+                    tr.feedback_event,
+                    Action::TurntableFeedback(t.id.clone(), i),
+                );
+                if let Some(e) = tr.feedback_event {
+                    self.node.add_consumer(e, EventState::Unknown);
+                }
+            }
+        }
         let old_blocks = std::mem::take(&mut self.blocks);
         let old_turnouts = std::mem::take(&mut self.turnouts);
         for b in &layout.blocks {
@@ -419,9 +475,27 @@ impl Dispatcher {
                 old_turnouts.get(&t.id).copied().unwrap_or_default(),
             );
         }
-        self.pending_deadlines
-            .retain(|id, _| layout.turnout(id).is_some_and(|t| t.has_feedback()));
+        let old_turntables = std::mem::take(&mut self.turntables);
+        for t in &layout.turntables {
+            let mut st = old_turntables.get(&t.id).copied().unwrap_or_default();
+            // Track indexes change meaning if tracks were added or removed.
+            let n = old_layout_tracks(&self.layout, &t.id);
+            if n != Some(t.tracks.len()) {
+                st = TurntableStatus::default();
+            }
+            self.turntables.insert(t.id.clone(), st);
+        }
+        self.pending_deadlines.retain(|id, _| {
+            layout.turnout(id).is_some_and(|t| t.has_feedback())
+                || layout.turntable(id).is_some()
+                    && self.turntables.get(id).is_some_and(|s| s.pending.is_some())
+        });
         for (id, st) in &mut self.turnouts {
+            if st.pending.is_some() && !self.pending_deadlines.contains_key(id) {
+                st.pending = None;
+            }
+        }
+        for (id, st) in &mut self.turntables {
             if st.pending.is_some() && !self.pending_deadlines.contains_key(id) {
                 st.pending = None;
             }
@@ -456,6 +530,9 @@ impl Dispatcher {
         }
         for t in self.turnouts.values_mut() {
             *t = TurnoutStatus::default();
+        }
+        for t in self.turntables.values_mut() {
+            *t = TurntableStatus::default();
         }
         self.pending_deadlines.clear();
         self.sync_consumer_states();
@@ -534,6 +611,12 @@ impl Dispatcher {
                     self.revision += 1;
                 }
             }
+            if let Some(st) = self.turntables.get_mut(&id) {
+                if st.pending.take().is_some() {
+                    st.stalled = true;
+                    self.revision += 1;
+                }
+            }
         }
     }
 
@@ -549,6 +632,9 @@ impl Dispatcher {
                 events.extend(fb.normal_event);
                 events.extend(fb.reverse_event);
             }
+        }
+        for t in &self.layout.turntables {
+            events.extend(t.tracks.iter().filter_map(|tr| tr.feedback_event));
         }
         for e in events {
             self.send(Message::IdentifyProducer(e));
@@ -734,6 +820,32 @@ impl Dispatcher {
                         _ => {}
                     }
                 }
+                Action::TurntableFeedback(id, i) => {
+                    if !matches!(report, Report::Pcer | Report::ProducerValid) {
+                        continue;
+                    }
+                    if let Some(t) = self.turntables.get_mut(id) {
+                        let before = *t;
+                        t.position = Some(*i);
+                        t.stalled = false;
+                        if t.pending == Some(*i) {
+                            t.pending = None;
+                            self.pending_deadlines.remove(id);
+                        } else if t.pending.is_some() {
+                            // Passing a track on the way: still moving.
+                            self.pending_deadlines
+                                .insert(id.clone(), self.now + TURNTABLE_TIMEOUT_MS);
+                        }
+                        changed |= *t != before;
+                    }
+                }
+                Action::TurntableStep(id, cw) => {
+                    // Only a real report moves the bridge; Producer
+                    // Identified is just someone announcing the event.
+                    if report == Report::Pcer {
+                        changed |= self.advance_turntable(id, if *cw { 1 } else { -1 });
+                    }
+                }
             }
         }
         if blocks_changed {
@@ -765,6 +877,56 @@ impl Dispatcher {
             self.send(Message::IdentifyProducer(e));
         }
         changed
+    }
+
+    /// Account for the bridge moving `steps` tracks on from where it was
+    /// heading. Unknown positions stay unknown.
+    fn advance_turntable(&mut self, id: &str, steps: i32) -> bool {
+        let Some(t) = self.layout.turntable(id) else {
+            return false;
+        };
+        let Some(st) = self.turntables.get(id).copied() else {
+            return false;
+        };
+        let Some(target) = st
+            .pending
+            .or(st.position)
+            .and_then(|from| t.step_from(from, steps))
+        else {
+            return false;
+        };
+        self.head_for(id, target)
+    }
+
+    /// The bridge is on its way to track `target`: wait for its feedback if
+    /// it has one (asking the sensor in case it is already there), or take
+    /// it as reached.
+    fn head_for(&mut self, id: &str, target: usize) -> bool {
+        let fb = self
+            .layout
+            .turntable(id)
+            .and_then(|t| t.tracks.get(target))
+            .and_then(|tr| tr.feedback_event);
+        let Some(st) = self.turntables.get_mut(id) else {
+            return false;
+        };
+        let before = *st;
+        match fb {
+            Some(e) => {
+                st.pending = Some(target);
+                self.pending_deadlines
+                    .insert(id.to_string(), self.now + TURNTABLE_TIMEOUT_MS);
+                if before.pending != Some(target) {
+                    self.send(Message::IdentifyProducer(e));
+                }
+            }
+            None => {
+                st.position = Some(target);
+                st.pending = None;
+                self.pending_deadlines.remove(id);
+            }
+        }
+        self.turntables.get(id) != Some(&before)
     }
 
     /// Make our consumer states match what we know, so that Identify
@@ -836,6 +998,115 @@ impl Dispatcher {
     pub fn toggle(&mut self, id: &str) -> bool {
         let st = self.turnouts.get(id).copied().unwrap_or_default();
         self.throw(id, st.pending.unwrap_or(st.position).toggled())
+    }
+
+    /// The positions a pair of turnouts are set for, or being thrown to:
+    /// for a switch worked by two turnouts, match it against
+    /// [`Shape::routes`](crate::Shape::routes).
+    pub fn pair_positions(&self, left: &str, right: &str) -> (Position, Position) {
+        let pos = |id: &str| {
+            let st = self.turnouts.get(id).copied().unwrap_or_default();
+            st.pending.unwrap_or(st.position)
+        };
+        (pos(left), pos(right))
+    }
+
+    /// Set a switch worked by two turnouts (a 3-way switch or slip) to the
+    /// route after the one it is set for now, in
+    /// [`Shape::routes`](crate::Shape::routes) order (the first route if
+    /// it's unknown). Returns the positions thrown, or `None` if a command
+    /// couldn't be sent.
+    pub fn next_route(
+        &mut self,
+        shape: crate::Shape,
+        left: &str,
+        right: &str,
+    ) -> Option<(Position, Position)> {
+        let routes = shape.routes();
+        let now = self.pair_positions(left, right);
+        let next = routes
+            .iter()
+            .position(|(p, _)| *p == now)
+            .map_or(0, |i| (i + 1) % routes.len().max(1));
+        let (pos, _) = *routes.get(next)?;
+        self.set_pair(left, right, pos).then_some(pos)
+    }
+
+    /// Throw two turnouts together, the one going to normal first so the
+    /// points are never both reversed on the way. Returns false if a
+    /// command couldn't be sent.
+    pub fn set_pair(&mut self, left: &str, right: &str, (l, r): (Position, Position)) -> bool {
+        let order = if l == Position::Normal {
+            [(left, l), (right, r)]
+        } else {
+            [(right, r), (left, l)]
+        };
+        order.into_iter().all(|(id, p)| self.throw(id, p))
+    }
+
+    /// Turn a turntable one track clockwise (`cw`) or counter-clockwise by
+    /// sending its `cw_event` or `ccw_event`. Returns false if that can't be
+    /// sent right now (offline, or no such event).
+    pub fn step_turntable(&mut self, id: &str, cw: bool) -> bool {
+        self.revision += 1;
+        if self.link_state() != LinkState::Online {
+            return false;
+        }
+        let Some(t) = self.layout.turntable(id) else {
+            return false;
+        };
+        let Some(event) = (if cw { t.cw_event } else { t.ccw_event }) else {
+            return false;
+        };
+        self.send(Message::Pcer(event));
+        self.advance_turntable(id, if cw { 1 } else { -1 });
+        true
+    }
+
+    /// Turn a turntable to track `index` (into its
+    /// [`tracks`](crate::layout::Turntable::tracks)) the shorter way round,
+    /// by sending one step event per track passed. Returns false if that
+    /// can't be done: offline, the bridge's position isn't known, there is
+    /// no such track, or the step event for that direction is missing.
+    pub fn turn_to(&mut self, id: &str, index: usize) -> bool {
+        self.revision += 1;
+        if self.link_state() != LinkState::Online {
+            return false;
+        }
+        let Some(t) = self.layout.turntable(id).cloned() else {
+            return false;
+        };
+        let st = self.turntables.get(id).copied().unwrap_or_default();
+        let Some(from) = st.pending.or(st.position) else {
+            return false;
+        };
+        if index >= t.tracks.len() {
+            return false;
+        }
+        let steps = t.steps_between(from, index);
+        let Some(event) = (if steps >= 0 { t.cw_event } else { t.ccw_event }) else {
+            return false;
+        };
+        for _ in 0..steps.unsigned_abs() {
+            self.send(Message::Pcer(event));
+        }
+        if steps != 0 || st.pending.is_some() {
+            self.head_for(id, index);
+        }
+        true
+    }
+
+    /// Tell the dispatcher where a turntable's bridge is (or that it isn't
+    /// known), e.g. after looking at the layout. Clears any pending turn.
+    pub fn set_turntable_position(&mut self, id: &str, index: Option<usize>) {
+        self.revision += 1;
+        let n = self.layout.turntable(id).map_or(0, |t| t.tracks.len());
+        if let Some(st) = self.turntables.get_mut(id) {
+            st.position = index.filter(|i| *i < n);
+            st.pending = None;
+            st.stalled = false;
+            self.pending_deadlines.remove(id);
+        }
     }
 
     // ---- Throttles -------------------------------------------------------

@@ -54,6 +54,8 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use rolcb::EventId;
+
+use crate::dispatcher::Position;
 use serde::{Deserialize, Serialize};
 
 /// The layout format version this crate reads and writes.
@@ -91,6 +93,9 @@ pub struct Layout {
     /// Turnouts.
     #[serde(default)]
     pub turnouts: Vec<Turnout>,
+    /// Turntables (drawn with [`Shape::Turntable`] tiles).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub turntables: Vec<Turntable>,
     /// Tiles drawn on the grid, at most one per cell.
     #[serde(default)]
     pub elements: Vec<Element>,
@@ -224,6 +229,202 @@ impl Turnout {
     }
 }
 
+/// A turntable and its roundhouse: a pit drawn centred on a
+/// [`Shape::Turntable`] tile, with tracks radiating from it at any angle.
+/// Lead tracks join the rest of the panel; stalls are drawn inside an engine
+/// house around the pit.
+///
+/// Like a turnout, it is driven by two events: `cw_event` turns the bridge
+/// to the next track clockwise and `ccw_event` to the next one
+/// counter-clockwise. A track's optional `feedback_event` reports that the
+/// bridge has lined up with it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct Turntable {
+    /// Unique id (shared namespace with blocks and turnouts), e.g. `"TT1"`.
+    pub id: String,
+    /// Display name; may be empty (see [`Turntable::display_name`]).
+    #[serde(default)]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(description = "Display name; the id is shown when empty.")
+    )]
+    pub name: String,
+    /// Pit diameter in grid cells, at least 1.
+    #[serde(default = "default_pit_size")]
+    #[cfg_attr(feature = "schema", schemars(range(min = 1, max = 8)))]
+    pub size: u8,
+    /// Event that turns the bridge to the next track clockwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<EventIdSchema>"))]
+    pub cw_event: Option<EventId>,
+    /// Event that turns the bridge to the next track counter-clockwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<EventIdSchema>"))]
+    pub ccw_event: Option<EventId>,
+    /// The tracks around the pit, in clockwise order from north (see
+    /// [`Turntable::sort_tracks`]). The bridge stops at each in turn.
+    #[serde(default)]
+    pub tracks: Vec<TurntableTrack>,
+}
+
+fn default_pit_size() -> u8 {
+    1
+}
+
+impl Default for Turntable {
+    fn default() -> Self {
+        Turntable {
+            id: String::new(),
+            name: String::new(),
+            size: default_pit_size(),
+            cw_event: None,
+            ccw_event: None,
+            tracks: Vec::new(),
+        }
+    }
+}
+
+/// A track leaving a turntable pit.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct TurntableTrack {
+    /// Direction from the pit's centre, in whole degrees clockwise from
+    /// north (`0..360`), on the drawing as shown. Leads should use multiples
+    /// of 45 so they meet the grid's track.
+    #[cfg_attr(feature = "schema", schemars(range(min = 0, max = 359)))]
+    pub angle: u16,
+    /// Display name, e.g. `"Stall 3"`; may be empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// A roundhouse stall (drawn inside the engine house) rather than a lead.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stall: bool,
+    /// Event produced when the bridge lines up with this track (optional).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<EventIdSchema>"))]
+    pub feedback_event: Option<EventId>,
+}
+
+/// Compass names for directions `0..=7`.
+pub const DIR_NAMES: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+impl TurntableTrack {
+    /// The name to show: [`name`](TurntableTrack::name), or the angle
+    /// (`"45°"`) if the name is empty.
+    pub fn display_name(&self) -> String {
+        if self.name.is_empty() {
+            format!("{}°", self.angle)
+        } else {
+            self.name.clone()
+        }
+    }
+
+    /// The grid direction (`0..=7`) this track points in, if its angle is
+    /// a multiple of 45°.
+    pub fn dir(&self) -> Option<u8> {
+        (self.angle % 45 == 0).then_some((self.angle / 45 % 8) as u8)
+    }
+}
+
+impl Turntable {
+    /// The name to show: [`name`](Turntable::name), or the id if the name is empty.
+    pub fn display_name(&self) -> &str {
+        if self.name.is_empty() {
+            &self.id
+        } else {
+            &self.name
+        }
+    }
+
+    /// Put the tracks in clockwise order from north and fold angles into
+    /// `0..360`. The bridge's stops, and so track indexes, follow this order.
+    pub fn sort_tracks(&mut self) {
+        for t in &mut self.tracks {
+            t.angle %= 360;
+        }
+        self.tracks.sort_by_key(|t| t.angle);
+    }
+
+    /// Add a track (keeping the order) unless one already has that angle.
+    /// Returns its index, or `None` if the angle was taken.
+    pub fn add_track(&mut self, angle: u16, name: &str, stall: bool) -> Option<usize> {
+        let angle = angle % 360;
+        if self.tracks.iter().any(|t| t.angle == angle) {
+            return None;
+        }
+        self.tracks.push(TurntableTrack {
+            angle,
+            name: name.to_string(),
+            stall,
+            feedback_event: None,
+        });
+        self.sort_tracks();
+        self.tracks.iter().position(|t| t.angle == angle)
+    }
+
+    /// The index of the track `steps` stops clockwise from `from`
+    /// (counter-clockwise for negative `steps`).
+    pub fn step_from(&self, from: usize, steps: i32) -> Option<usize> {
+        let n = self.tracks.len() as i32;
+        (n > 0).then(|| (from as i32 + steps).rem_euclid(n) as usize)
+    }
+
+    /// The shortest way from track `from` to track `to`: steps clockwise
+    /// (positive) or counter-clockwise (negative). Ties go clockwise.
+    ///
+    /// ```
+    /// use s4d_core::layout::Turntable;
+    ///
+    /// let mut t = Turntable::default();
+    /// for a in [0, 30, 60, 90, 180, 270] {
+    ///     t.add_track(a, "", true);
+    /// }
+    /// assert_eq!(t.steps_between(0, 2), 2);
+    /// assert_eq!(t.steps_between(0, 5), -1);
+    /// assert_eq!(t.steps_between(1, 4), 3);
+    /// ```
+    pub fn steps_between(&self, from: usize, to: usize) -> i32 {
+        let n = self.tracks.len() as i32;
+        if n == 0 {
+            return 0;
+        }
+        let cw = (to as i32 - from as i32).rem_euclid(n);
+        if cw <= n - cw {
+            cw
+        } else {
+            cw - n
+        }
+    }
+
+    /// An unused angle for a new stall: the middle of the widest gap
+    /// between the existing tracks.
+    pub fn free_stall_angle(&self) -> u16 {
+        let mut angles: Vec<u16> = self.tracks.iter().map(|t| t.angle % 360).collect();
+        angles.sort_unstable();
+        angles.dedup();
+        match angles.len() {
+            0 => 90,
+            1 => (angles[0] + 180) % 360,
+            n => {
+                let (gap, at) = (0..n)
+                    .map(|i| {
+                        let a = angles[i];
+                        let b = if i + 1 < n {
+                            angles[i + 1]
+                        } else {
+                            angles[0] + 360
+                        };
+                        (b - a, a)
+                    })
+                    .max()
+                    .unwrap();
+                (at + gap / 2) % 360
+            }
+        }
+    }
+}
+
 /// Something drawn on the grid.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -245,9 +446,27 @@ pub enum Element {
         /// The block this tile belongs to, by id.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         block: Option<String>,
+        /// The block of the second track through a crossing tile
+        /// ([`Shape::has_two_tracks`]): the track that doesn't start at the
+        /// tile's W edge. `None` means the same block as `block`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        block2: Option<String>,
         /// The turnout this tile shows, by id (turnout shapes only).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         turnout: Option<String>,
+        /// The second turnout of a switch worked by two
+        /// ([`Shape::has_two_turnouts`]): the right-hand points of a 3-way
+        /// switch or slip. `turnout` is the left-hand one. See
+        /// [`Shape::routes`] for what each combination sets.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turnout2: Option<String>,
+        /// The turntable this tile shows, by id ([`Shape::Turntable`] only).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turntable: Option<String>,
+        /// The name of a [`Shape::Portal`]'s link: the track continues at
+        /// the other portal with the same name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        portal: Option<String>,
     },
     /// A text label.
     Label {
@@ -288,6 +507,8 @@ pub enum Shape {
     Straight,
     /// W to NE (a 45° curve).
     Curve,
+    /// W to N (a 90° curve).
+    TightCurve,
     /// W to a dead end.
     Bumper,
     /// W–E crossing N–S.
@@ -300,24 +521,139 @@ pub enum Shape {
     TurnoutRight,
     /// Normal W–NE, reverse W–SE.
     Wye,
+    /// Three routes from W: left to NE, straight to E, right to SE. Thrown
+    /// by two turnouts: `turnout` reversed takes the left route, `turnout2`
+    /// reversed the right route, both normal the straight route.
+    ThreeWay,
+    /// A diamond crossing (W–E and NW–SE) with one slip road, W–SE. Worked
+    /// by two turnouts; see [`Shape::routes`].
+    SingleSlip,
+    /// A diamond crossing (W–E and NW–SE) with both slip roads, W–SE and
+    /// NW–E. Worked by two turnouts; see [`Shape::routes`].
+    DoubleSlip,
+    /// A turntable pit, with its roundhouse. Its tracks come from the
+    /// [`Turntable`], not from the tile's rotation.
+    Turntable,
+    /// A track from W that leaves here and carries on at the other portal
+    /// with the same name, like a tunnel that wraps from one edge of the
+    /// panel to the other.
+    Portal,
 }
 
 impl Shape {
     /// Every shape, in palette order.
-    pub const ALL: [Shape; 8] = [
+    pub const ALL: [Shape; 14] = [
         Shape::Straight,
         Shape::Curve,
+        Shape::TightCurve,
         Shape::Bumper,
         Shape::Crossing,
         Shape::CrossingDiag,
         Shape::TurnoutLeft,
         Shape::TurnoutRight,
         Shape::Wye,
+        Shape::ThreeWay,
+        Shape::SingleSlip,
+        Shape::DoubleSlip,
+        Shape::Turntable,
+        Shape::Portal,
     ];
 
     /// True for shapes that need a [`Turnout`].
     pub fn is_turnout(self) -> bool {
-        matches!(self, Shape::TurnoutLeft | Shape::TurnoutRight | Shape::Wye)
+        matches!(
+            self,
+            Shape::TurnoutLeft
+                | Shape::TurnoutRight
+                | Shape::Wye
+                | Shape::ThreeWay
+                | Shape::SingleSlip
+                | Shape::DoubleSlip
+        )
+    }
+
+    /// True for tiles where two separate tracks cross, each of which can be
+    /// in its own block (`block` and `block2`): crossings, diamonds and
+    /// slips.
+    pub fn has_two_tracks(self) -> bool {
+        matches!(
+            self,
+            Shape::Crossing | Shape::CrossingDiag | Shape::SingleSlip | Shape::DoubleSlip
+        )
+    }
+
+    /// For a crossing tile, whether segment `seg` (before rotation) belongs
+    /// to the second track (`block2`): those that don't touch the W edge.
+    ///
+    /// ```
+    /// use s4d_core::Shape;
+    ///
+    /// assert!(!Shape::Crossing.on_second_track((6, 2)));
+    /// assert!(Shape::Crossing.on_second_track((0, 4)));
+    /// assert!(Shape::DoubleSlip.on_second_track((7, 2)));
+    /// assert!(!Shape::Straight.on_second_track((0, 4)));
+    /// ```
+    pub fn on_second_track(self, (a, b): Seg) -> bool {
+        self.has_two_tracks() && a != 6 && b != 6
+    }
+
+    /// True for switches worked by two turnouts (`turnout` and
+    /// `turnout2`): 3-way switches and slips.
+    pub fn has_two_turnouts(self) -> bool {
+        matches!(
+            self,
+            Shape::ThreeWay | Shape::SingleSlip | Shape::DoubleSlip
+        )
+    }
+
+    /// The routes of a switch worked by two turnouts, in the order the panel
+    /// steps through them: the (left-hand, right-hand) turnout positions
+    /// that set each route, and the segment it connects (before rotation).
+    /// Empty for other shapes.
+    ///
+    /// | Shape | Normal, normal | Reverse, normal | Normal, reverse | Reverse, reverse |
+    /// |---|---|---|---|---|
+    /// | 3-way | W–E | W–NE (left) | W–SE (right) | — |
+    /// | Single slip | W–E | W–SE (slip) | — | NW–SE |
+    /// | Double slip | W–E | W–SE (slip) | NW–E (slip) | NW–SE |
+    ///
+    /// ```
+    /// use s4d_core::{Position::*, Shape};
+    ///
+    /// let r = Shape::DoubleSlip.routes();
+    /// assert_eq!(r.len(), 4);
+    /// assert_eq!(r[1], ((Reverse, Normal), (6, 3)));
+    /// assert!(Shape::Straight.routes().is_empty());
+    /// ```
+    pub fn routes(self) -> &'static [((Position, Position), Seg)] {
+        use Position::{Normal as N, Reverse as R};
+        match self {
+            Shape::ThreeWay => &[((N, N), (6, 2)), ((R, N), (6, 1)), ((N, R), (6, 3))],
+            Shape::SingleSlip => &[((N, N), (6, 2)), ((R, N), (6, 3)), ((R, R), (7, 3))],
+            Shape::DoubleSlip => &[
+                ((N, N), (6, 2)),
+                ((R, N), (6, 3)),
+                ((N, R), (7, 2)),
+                ((R, R), (7, 3)),
+            ],
+            _ => &[],
+        }
+    }
+
+    /// True for slip roads, which are drawn bowed out beside the crossing
+    /// so they can be told apart from it.
+    pub fn is_slip_road(self, (a, b): Seg) -> bool {
+        matches!(self, Shape::SingleSlip | Shape::DoubleSlip) && (a + 4) % 8 != b
+    }
+
+    /// True for [`Shape::Portal`], which needs a portal name.
+    pub fn is_portal(self) -> bool {
+        self == Shape::Portal
+    }
+
+    /// True for [`Shape::Turntable`], which needs a [`Turntable`].
+    pub fn is_turntable(self) -> bool {
+        self == Shape::Turntable
     }
 
     /// A short English name for palettes.
@@ -325,12 +661,18 @@ impl Shape {
         match self {
             Shape::Straight => "Straight",
             Shape::Curve => "Curve",
+            Shape::TightCurve => "Tight curve",
             Shape::Bumper => "Bumper",
             Shape::Crossing => "Crossing",
             Shape::CrossingDiag => "Diamond",
             Shape::TurnoutLeft => "Turnout L",
             Shape::TurnoutRight => "Turnout R",
             Shape::Wye => "Wye",
+            Shape::ThreeWay => "3-way",
+            Shape::SingleSlip => "Single slip",
+            Shape::DoubleSlip => "Double slip",
+            Shape::Turntable => "Turntable",
+            Shape::Portal => "Portal",
         }
     }
 
@@ -357,12 +699,18 @@ impl Shape {
         match self {
             Shape::Straight => Legs::fixed(seg(W, 2)),
             Shape::Curve => Legs::fixed(seg(W, 1)),
+            Shape::TightCurve => Legs::fixed(seg(W, 0)),
             Shape::Bumper => Legs::fixed(seg(W, CENTER)),
             Shape::Crossing => Legs::fixed(vec![(W, 2), (0, 4)]),
             Shape::CrossingDiag => Legs::fixed(vec![(W, 2), (7, 3)]),
             Shape::TurnoutLeft => Legs::switched(seg(W, 2), seg(W, 1)),
             Shape::TurnoutRight => Legs::switched(seg(W, 2), seg(W, 3)),
             Shape::Wye => Legs::switched(seg(W, 1), seg(W, 3)),
+            Shape::ThreeWay => Legs::switched(seg(W, 2), vec![(W, 1), (W, 3)]),
+            Shape::SingleSlip => Legs::switched(vec![(W, 2), (7, 3)], seg(W, 3)),
+            Shape::DoubleSlip => Legs::switched(vec![(W, 2), (7, 3)], vec![(W, 3), (7, 2)]),
+            Shape::Turntable => Legs::default(),
+            Shape::Portal => Legs::fixed(seg(W, CENTER)),
         }
     }
 }
@@ -434,6 +782,17 @@ pub fn dir_offset(dir: u8) -> (f32, f32) {
     }
 }
 
+/// The grid step (dx, dy) to the neighbouring cell in direction `dir`
+/// (`dir` is taken modulo 8).
+///
+/// ```
+/// assert_eq!(s4d_core::layout::dir_step(1), (1, -1)); // NE: right and up
+/// ```
+pub fn dir_step(dir: u8) -> (i32, i32) {
+    let (x, y) = dir_offset(dir % 8);
+    ((x * 2.0) as i32, (y * 2.0) as i32)
+}
+
 /// A problem found by [`Layout::validate`], as an English sentence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Issue(pub String);
@@ -475,6 +834,63 @@ impl fmt::Display for MoveError {
 
 impl std::error::Error for MoveError {}
 
+/// Why [`Layout::route_track`] found no route. Nothing was changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteError {
+    /// An endpoint is outside the grid.
+    OutsideGrid,
+    /// Both endpoints are the same cell.
+    SameCell,
+    /// This endpoint has track (or a label) with nowhere to join new track.
+    NoFreeEnd {
+        /// Column.
+        x: u16,
+        /// Row.
+        y: u16,
+    },
+    /// Every way between the endpoints is blocked.
+    NoRoute,
+}
+
+impl fmt::Display for RouteError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RouteError::OutsideGrid => f.write_str("that point is outside the grid"),
+            RouteError::SameCell => f.write_str("pick two different cells"),
+            RouteError::NoFreeEnd { x, y } => {
+                write!(f, "the track at {x},{y} has no free end to join")
+            }
+            RouteError::NoRoute => f.write_str("there's no clear way between those points"),
+        }
+    }
+}
+
+impl std::error::Error for RouteError {}
+
+/// The plain track tile (straight, curve or tight curve) with track ends
+/// in directions `a` and `b`. Anything sharper than 90° (or `a == b`) gets
+/// a straight tile through `a`.
+///
+/// ```
+/// use s4d_core::layout::shape_for_exits;
+/// use s4d_core::Shape;
+///
+/// assert_eq!(shape_for_exits(6, 2), (Shape::Straight, 0));
+/// assert_eq!(shape_for_exits(1, 6), (Shape::Curve, 0)); // W to NE
+/// assert_eq!(shape_for_exits(4, 6), (Shape::TightCurve, 6)); // S to W
+/// ```
+pub fn shape_for_exits(a: u8, b: u8) -> (Shape, u8) {
+    let (a, b) = (a % 8, b % 8);
+    let rot_from = |first: u8| (first + 2) % 8; // rotation taking W (6) to `first`
+    match (b + 8 - a) % 8 {
+        3 => (Shape::Curve, rot_from(a)),
+        5 => (Shape::Curve, rot_from(b)),
+        2 => (Shape::TightCurve, rot_from(a)),
+        6 => (Shape::TightCurve, rot_from(b)),
+        _ => (Shape::Straight, rot_from(a) % 4),
+    }
+}
+
 impl Layout {
     /// A layout with no tiles, blocks or turnouts and the default grid.
     pub fn empty(name: &str) -> Layout {
@@ -484,6 +900,7 @@ impl Layout {
             grid: Grid::default(),
             blocks: Vec::new(),
             turnouts: Vec::new(),
+            turntables: Vec::new(),
             elements: Vec::new(),
         }
     }
@@ -549,6 +966,11 @@ impl Layout {
         self.turnouts.iter().find(|t| t.id == id)
     }
 
+    /// The turntable with this id.
+    pub fn turntable(&self, id: &str) -> Option<&Turntable> {
+        self.turntables.iter().find(|t| t.id == id)
+    }
+
     /// Index into [`elements`](Layout::elements) of the tile at a cell.
     pub fn element_at(&self, x: u16, y: u16) -> Option<usize> {
         self.elements.iter().position(|e| e.pos() == (x, y))
@@ -568,14 +990,16 @@ impl Layout {
         self.elements.retain(|e| e.pos() != (x, y));
     }
 
-    /// Next free id like "B7" / "T3".
+    /// Next free id like "B7" / "T3" / "TT1".
     ///
     /// # Panics
     ///
     /// Never in practice (it would need billions of ids in use).
     pub fn next_id(&self, prefix: &str) -> String {
         let used = |id: &str| {
-            self.blocks.iter().any(|b| b.id == id) || self.turnouts.iter().any(|t| t.id == id)
+            self.blocks.iter().any(|b| b.id == id)
+                || self.turnouts.iter().any(|t| t.id == id)
+                || self.turntables.iter().any(|t| t.id == id)
         };
         (1..)
             .map(|n| format!("{prefix}{n}"))
@@ -646,7 +1070,8 @@ impl Layout {
     /// let mut l = Layout::empty("t");
     /// l.put(Element::Track {
     ///     x: 0, y: 0, shape: Shape::Straight, rot: 0,
-    ///     block: Some("B9".into()), turnout: None,
+    ///     block: Some("B9".into()), block2: None, turnout: None, turnout2: None,
+    ///     turntable: None, portal: None,
     /// });
     /// let issues = l.validate();
     /// assert_eq!(issues.len(), 1);
@@ -660,6 +1085,7 @@ impl Layout {
             .iter()
             .map(|b| &b.id)
             .chain(self.turnouts.iter().map(|t| &t.id))
+            .chain(self.turntables.iter().map(|t| &t.id))
         {
             if !seen.insert(id) {
                 out.push(Issue(format!("duplicate id {id}")));
@@ -696,6 +1122,31 @@ impl Layout {
                 }
             }
         }
+        for t in &self.turntables {
+            let mut seen = BTreeSet::new();
+            for tr in &t.tracks {
+                if tr.angle >= 360 {
+                    out.push(Issue(format!(
+                        "turntable {} has a track at {}° (must be 0..360)",
+                        t.id, tr.angle
+                    )));
+                } else if !seen.insert(tr.angle) {
+                    out.push(Issue(format!(
+                        "turntable {} has two tracks at {}°",
+                        t.id, tr.angle
+                    )));
+                }
+            }
+            if t.tracks.windows(2).any(|w| w[0].angle > w[1].angle) {
+                out.push(Issue(format!(
+                    "turntable {}'s tracks are not in clockwise order",
+                    t.id
+                )));
+            }
+            if t.size == 0 {
+                out.push(Issue(format!("turntable {} has size 0", t.id)));
+            }
+        }
         for el in &self.elements {
             let (x, y) = el.pos();
             if x >= self.grid.cols || y >= self.grid.rows {
@@ -703,12 +1154,23 @@ impl Layout {
             }
             if let Element::Track {
                 block,
+                block2,
                 turnout,
+                turnout2,
+                turntable,
+                portal,
                 shape,
                 rot,
                 ..
             } = el
             {
+                if let Some(b) = block2 {
+                    if self.block(b).is_none() {
+                        out.push(Issue(format!(
+                            "tile at {x},{y} refers to unknown block {b}"
+                        )));
+                    }
+                }
                 if *rot > 7 {
                     out.push(Issue(format!(
                         "tile at {x},{y} has rotation {rot} (must be 0..=7)"
@@ -733,9 +1195,145 @@ impl Layout {
                         "turnout tile at {x},{y} has no turnout assigned"
                     )));
                 }
+                if let Some(t) = turnout2 {
+                    if self.turnout(t).is_none() {
+                        out.push(Issue(format!(
+                            "tile at {x},{y} refers to unknown turnout {t}"
+                        )));
+                    }
+                }
+                if shape.has_two_turnouts() && turnout2.is_none() {
+                    out.push(Issue(format!(
+                        "{} tile at {x},{y} has no right-hand turnout assigned",
+                        shape.label()
+                    )));
+                }
+                if shape.is_portal() && portal.as_deref().is_none_or(str::is_empty) {
+                    out.push(Issue(format!("portal at {x},{y} has no name")));
+                }
+                if let Some(t) = turntable {
+                    if self.turntable(t).is_none() {
+                        out.push(Issue(format!(
+                            "tile at {x},{y} refers to unknown turntable {t}"
+                        )));
+                    }
+                }
+                if shape.is_turntable() && turntable.is_none() {
+                    out.push(Issue(format!(
+                        "turntable tile at {x},{y} has no turntable assigned"
+                    )));
+                }
+            }
+        }
+        let mut portals: std::collections::BTreeMap<&str, usize> = Default::default();
+        for el in &self.elements {
+            if let Element::Track {
+                shape: Shape::Portal,
+                portal: Some(p),
+                ..
+            } = el
+            {
+                *portals.entry(p.as_str()).or_default() += 1;
+            }
+        }
+        for (p, n) in portals {
+            match n {
+                2 => {}
+                1 => out.push(Issue(format!("portal {p} has no other end"))),
+                n => out.push(Issue(format!(
+                    "portal {p} has {n} ends (it needs exactly 2)"
+                ))),
             }
         }
         out
+    }
+
+    /// The cell of the other end of the portal at (x, y), if that tile is a
+    /// [`Shape::Portal`] and its partner exists.
+    ///
+    /// ```
+    /// use s4d_core::{Layout, Shape};
+    ///
+    /// let mut l = Layout::empty("t");
+    /// l.place_track(0, 3, Shape::Portal, 4, None); // leaves to the W
+    /// l.place_track(31, 3, Shape::Portal, 0, None); // comes back from the E
+    /// assert_eq!(l.portal_partner(0, 3), Some((31, 3)));
+    /// assert!(l.validate().is_empty());
+    /// ```
+    pub fn portal_partner(&self, x: u16, y: u16) -> Option<(u16, u16)> {
+        let name = match &self.elements[self.element_at(x, y)?] {
+            Element::Track {
+                shape: Shape::Portal,
+                portal: Some(p),
+                ..
+            } => p,
+            _ => return None,
+        };
+        self.elements.iter().find_map(|e| match e {
+            Element::Track {
+                shape: Shape::Portal,
+                portal: Some(p),
+                x: px,
+                y: py,
+                ..
+            } if p == name && (*px, *py) != (x, y) => Some((*px, *py)),
+            _ => None,
+        })
+    }
+
+    /// Portal names in use, with how many ends each has.
+    fn portal_ends(&self) -> std::collections::BTreeMap<String, usize> {
+        let mut out = std::collections::BTreeMap::new();
+        for el in &self.elements {
+            if let Element::Track {
+                shape: Shape::Portal,
+                portal: Some(p),
+                ..
+            } = el
+            {
+                *out.entry(p.clone()).or_default() += 1;
+            }
+        }
+        out
+    }
+
+    /// The next unused portal name: `A`, `B`, ... `Z`, `AA`, `AB`, ...
+    pub fn next_portal_name(&self) -> String {
+        let used = self.portal_ends();
+        (0..)
+            .map(|mut n: usize| {
+                let mut s = String::new();
+                loop {
+                    s.insert(0, (b'A' + (n % 26) as u8) as char);
+                    if n < 26 {
+                        break s;
+                    }
+                    n = n / 26 - 1;
+                }
+            })
+            .find(|s| !used.contains_key(s))
+            .unwrap()
+    }
+
+    /// The portal name a portal tile at (x, y) should get: the one it
+    /// already has, else a name with only one end so far (pairing the two),
+    /// else a new name.
+    fn portal_for(&self, x: u16, y: u16, shape: Shape) -> Option<String> {
+        if !shape.is_portal() {
+            return None;
+        }
+        if let Some(Element::Track {
+            portal: Some(p), ..
+        }) = self.element_at(x, y).map(|i| &self.elements[i])
+        {
+            return Some(p.clone());
+        }
+        let open = self
+            .portal_ends()
+            .into_iter()
+            .find(|(_, n)| *n == 1)
+            .map(|(p, _)| p);
+        Some(open.unwrap_or_else(|| self.next_portal_name()))
     }
 
     // ---- Editor operations ----------------------------------------------
@@ -775,6 +1373,503 @@ impl Layout {
             self.turnout_at(x, y)
                 .unwrap_or_else(|| self.new_blank_turnout()),
         )
+    }
+
+    /// The second turnout of a 3-way tile at a cell (kept, or a new blank
+    /// one). `None` for other shapes.
+    fn turnout2_for(&mut self, x: u16, y: u16, shape: Shape) -> Option<String> {
+        if !shape.has_two_turnouts() {
+            return None;
+        }
+        let existing = self.element_at(x, y).and_then(|i| match &self.elements[i] {
+            Element::Track {
+                turnout2: Some(t), ..
+            } if self.turnout(t).is_some() => Some(t.clone()),
+            _ => None,
+        });
+        Some(existing.unwrap_or_else(|| self.new_blank_turnout()))
+    }
+
+    /// The defined turntable already shown by the tile at a cell.
+    fn turntable_at(&self, x: u16, y: u16) -> Option<String> {
+        let i = self.element_at(x, y)?;
+        match &self.elements[i] {
+            Element::Track {
+                turntable: Some(t), ..
+            } if self.turntable(t).is_some() => Some(t.clone()),
+            _ => None,
+        }
+    }
+
+    /// The turntable a tile at (x, y) with `shape` should show: the
+    /// existing one, or a new one with a lead for every track that already
+    /// ends at the cell. `None` for other shapes.
+    fn turntable_for(&mut self, x: u16, y: u16, shape: Shape) -> Option<String> {
+        if !shape.is_turntable() {
+            return None;
+        }
+        if let Some(t) = self.turntable_at(x, y) {
+            return Some(t);
+        }
+        let id = self.next_id("TT");
+        let mut t = Turntable {
+            id: id.clone(),
+            ..Default::default()
+        };
+        for d in self.connected_dirs(x, y) {
+            t.add_track(d as u16 * 45, "", false);
+        }
+        self.turntables.push(t);
+        Some(id)
+    }
+
+    /// Directions in which a neighbouring tile has track running into the
+    /// cell (x, y), in direction order. Turntable neighbours count if they
+    /// have a lead facing the cell.
+    ///
+    /// ```
+    /// use s4d_core::{Layout, Shape};
+    ///
+    /// let mut l = Layout::empty("t");
+    /// l.place_track(4, 5, Shape::Straight, 0, None); // W of (5, 5)
+    /// l.place_track(6, 4, Shape::Straight, 3, None); // NE of it, diagonal
+    /// assert_eq!(l.connected_dirs(5, 5), vec![1, 6]);
+    /// ```
+    pub fn connected_dirs(&self, x: u16, y: u16) -> Vec<u8> {
+        (0..8u8)
+            .filter(|&d| {
+                let (dx, dy) = dir_step(d);
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                if !self.in_grid(nx, ny) {
+                    return false;
+                }
+                let back = (d + 4) % 8;
+                match self
+                    .element_at(nx as u16, ny as u16)
+                    .map(|i| &self.elements[i])
+                {
+                    Some(Element::Track {
+                        shape: Shape::Turntable,
+                        turntable,
+                        ..
+                    }) => turntable
+                        .as_deref()
+                        .and_then(|t| self.turntable(t))
+                        .is_some_and(|t| {
+                            t.tracks
+                                .iter()
+                                .any(|tr| !tr.stall && tr.dir() == Some(back))
+                        }),
+                    Some(Element::Track { shape, rot, .. }) => {
+                        let legs = shape.legs().rotated(*rot);
+                        legs.fixed
+                            .iter()
+                            .chain(&legs.normal)
+                            .chain(&legs.reverse)
+                            .any(|&(a, b)| a == back || b == back)
+                    }
+                    _ => false,
+                }
+            })
+            .collect()
+    }
+
+    /// Give turntable `id` a lead for every track that ends at its tile and
+    /// doesn't have one yet. Returns how many were added.
+    pub fn add_connected_leads(&mut self, id: &str) -> usize {
+        let cells: Vec<(u16, u16)> = self
+            .elements
+            .iter()
+            .filter_map(|e| match e {
+                Element::Track {
+                    x,
+                    y,
+                    turntable: Some(t),
+                    ..
+                } if t == id => Some((*x, *y)),
+                _ => None,
+            })
+            .collect();
+        let dirs: Vec<u8> = cells
+            .into_iter()
+            .flat_map(|(x, y)| self.connected_dirs(x, y))
+            .collect();
+        let Some(t) = self.turntables.iter_mut().find(|t| t.id == id) else {
+            return 0;
+        };
+        dirs.into_iter()
+            .filter(|&d| t.add_track(d as u16 * 45, "", false).is_some())
+            .count()
+    }
+
+    /// Delete a turntable and clear every tile's reference to it. Returns
+    /// false if there was no such turntable.
+    pub fn remove_turntable(&mut self, id: &str) -> bool {
+        let before = self.turntables.len();
+        self.turntables.retain(|t| t.id != id);
+        if self.turntables.len() == before {
+            return false;
+        }
+        for el in &mut self.elements {
+            if let Element::Track { turntable, .. } = el {
+                if turntable.as_deref() == Some(id) {
+                    *turntable = None;
+                }
+            }
+        }
+        true
+    }
+
+    /// Draw a turntable and roundhouse at (x, y): a pit `size` cells
+    /// across, a lead of `lead` straight tiles leaving it towards `rot` (0 =
+    /// W, then clockwise in 45° steps like tile rotation), and `stalls`
+    /// roundhouse stalls 15° apart around the far side. All tiles go in
+    /// `block`. Returns the new turntable's id.
+    ///
+    /// ```
+    /// use s4d_core::{Layout, Shape};
+    ///
+    /// let mut l = Layout::empty("t");
+    /// let tt = l.place_roundhouse(10, 8, 2, 0, 2, 6, None).unwrap();
+    /// let t = l.turntable(&tt).unwrap();
+    /// assert_eq!(t.tracks.len(), 7);
+    /// assert_eq!(t.tracks.iter().filter(|t| t.stall).count(), 6);
+    /// assert_eq!(t.tracks.iter().find(|t| !t.stall).unwrap().angle, 270); // lead to the W
+    /// assert!(l.validate().is_empty());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Refuses, changing nothing, with the first cell that is outside the
+    /// grid or already in use.
+    #[allow(clippy::too_many_arguments)]
+    pub fn place_roundhouse(
+        &mut self,
+        x: u16,
+        y: u16,
+        size: u8,
+        rot: u8,
+        lead: u16,
+        stalls: u16,
+        block: Option<String>,
+    ) -> Result<String, MoveError> {
+        let rot = rot % 8;
+        let size = size.max(1);
+        let lead_dir = (6 + rot) % 8;
+        // Lead tiles start outside the pit.
+        let skip = (size as i32 - 1) / 2;
+        let (dx, dy) = dir_step(lead_dir);
+        let mut tiles = vec![((x as i32, y as i32), Shape::Turntable, 0)];
+        for k in 1..=lead as i32 {
+            let k = k + skip;
+            // Straight track looks the same both ways round.
+            tiles.push((
+                (x as i32 + dx * k, y as i32 + dy * k),
+                Shape::Straight,
+                (lead_dir + 2) % 4,
+            ));
+        }
+        for &((cx, cy), _, _) in &tiles {
+            if !self.in_grid(cx, cy) {
+                let (ox, oy) = (cx.clamp(0, u16::MAX as i32), cy.clamp(0, u16::MAX as i32));
+                return Err(MoveError::OutOfGrid {
+                    x: ox as u16,
+                    y: oy as u16,
+                });
+            }
+            if self.element_at(cx as u16, cy as u16).is_some() {
+                return Err(MoveError::Overlap {
+                    x: cx as u16,
+                    y: cy as u16,
+                });
+            }
+        }
+        let id = self.next_id("TT");
+        let mut tt = Turntable {
+            id: id.clone(),
+            size,
+            ..Default::default()
+        };
+        let lead_angle = lead_dir as u16 * 45;
+        tt.add_track(lead_angle, "Lead", false);
+        let start = lead_angle + 180 + 360 - 15 * stalls.saturating_sub(1) / 2;
+        for i in 0..stalls {
+            tt.add_track(start + 15 * i, "", true);
+        }
+        // Number the stalls clockwise, starting after the lead.
+        let lead_at = tt.tracks.iter().position(|t| !t.stall).unwrap_or(0);
+        let n = tt.tracks.len();
+        let mut k = 0;
+        for i in 1..n {
+            let t = &mut tt.tracks[(lead_at + i) % n];
+            if t.stall {
+                k += 1;
+                t.name = format!("Stall {k}");
+            }
+        }
+        self.turntables.push(tt);
+        for ((cx, cy), shape, r) in tiles {
+            self.put(Element::Track {
+                x: cx as u16,
+                y: cy as u16,
+                shape,
+                rot: r,
+                block: block.clone(),
+                turnout: None,
+                turntable: shape.is_turntable().then(|| id.clone()),
+                turnout2: None,
+                block2: None,
+                portal: None,
+            });
+        }
+        Ok(id)
+    }
+
+    /// Directions in which the track tile at (x, y) has a track end that
+    /// nothing joins yet: where new track can be attached. Empty for cells
+    /// without track.
+    pub fn free_ends(&self, x: u16, y: u16) -> Vec<u8> {
+        let Some(el) = self.element_at(x, y).map(|i| &self.elements[i]) else {
+            return Vec::new();
+        };
+        let ends: BTreeSet<u8> = match el {
+            Element::Track {
+                shape: Shape::Turntable,
+                turntable,
+                ..
+            } => turntable
+                .as_deref()
+                .and_then(|t| self.turntable(t))
+                .map(|t| {
+                    t.tracks
+                        .iter()
+                        .filter(|tr| !tr.stall)
+                        .filter_map(TurntableTrack::dir)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            Element::Track {
+                shape: Shape::Portal,
+                ..
+            } => BTreeSet::new(),
+            Element::Track { shape, rot, .. } => {
+                let legs = shape.legs().rotated(*rot);
+                legs.fixed
+                    .iter()
+                    .chain(&legs.normal)
+                    .chain(&legs.reverse)
+                    .flat_map(|&(a, b)| [a, b])
+                    .filter(|&d| d != CENTER)
+                    .collect()
+            }
+            Element::Label { .. } => BTreeSet::new(),
+        };
+        let joined = self.connected_dirs(x, y);
+        ends.into_iter().filter(|d| !joined.contains(d)).collect()
+    }
+
+    /// Work out new track joining cell `from` to cell `to` without
+    /// touching anything already drawn, and return the tiles it would add
+    /// (in `block`). Nothing is changed; see [`draw_route`](Layout::draw_route).
+    ///
+    /// An endpoint that already has track is joined at one of its
+    /// [free ends](Layout::free_ends); an empty endpoint gets a new tile.
+    /// The route takes empty cells only and prefers straight runs: 45°
+    /// bends cost a little, 90° bends ([`Shape::TightCurve`]) a lot, and
+    /// nothing sharper is used.
+    ///
+    /// ```
+    /// use s4d_core::{Element, Layout, Shape};
+    ///
+    /// let mut l = Layout::empty("t");
+    /// l.place_track(2, 2, Shape::Bumper, 4, None);  // a line ending at (2, 2), open to the E
+    /// l.place_track(12, 6, Shape::Bumper, 0, None); // another, open to the W
+    /// let tiles = l.route_track((2, 2), (12, 6), None).unwrap();
+    /// // Four cells diagonally (the rows differ by 4), the rest straight.
+    /// assert_eq!(tiles.len(), 9);
+    /// assert!(tiles.iter().all(|t| matches!(t,
+    ///     Element::Track { shape: Shape::Straight | Shape::Curve, .. })));
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`RouteError`] if an endpoint is outside the grid, is a cell with
+    /// track but no free end, or no route fits.
+    pub fn route_track(
+        &self,
+        from: (u16, u16),
+        to: (u16, u16),
+        block: Option<String>,
+    ) -> Result<Vec<Element>, RouteError> {
+        use std::cmp::Reverse;
+        use std::collections::{BinaryHeap, HashMap};
+
+        for &(x, y) in &[from, to] {
+            if !self.in_grid(x as i32, y as i32) {
+                return Err(RouteError::OutsideGrid);
+            }
+        }
+        if from == to {
+            return Err(RouteError::SameCell);
+        }
+        let from_ends = self.end_dirs(from)?;
+        let to_ends = self.end_dirs(to)?;
+        let from_empty = self.element_at(from.0, from.1).is_none();
+        let to_empty = self.element_at(to.0, to.1).is_none();
+        // Headings we may arrive at `to` with (moving into it).
+        let arrive: Vec<u8> = match &to_ends {
+            None => (0..8).collect(),
+            Some(ends) => ends.iter().map(|e| (e + 4) % 8).collect(),
+        };
+        let step = |(x, y): (u16, u16), d: u8| {
+            let (dx, dy) = dir_step(d);
+            (x as i32 + dx, y as i32 + dy)
+        };
+        let free = |c: (i32, i32)| {
+            self.in_grid(c.0, c.1) && self.element_at(c.0 as u16, c.1 as u16).is_none()
+        };
+
+        // State: a placed cell and the heading we entered it with.
+        type State = ((u16, u16), u8);
+        let mut dist: HashMap<State, u32> = HashMap::new();
+        let mut prev: HashMap<State, State> = HashMap::new();
+        let mut heap = BinaryHeap::new();
+        let len = |d: u8| if d % 2 == 0 { 10 } else { 14 };
+        match &from_ends {
+            None => {
+                for h in 0..8 {
+                    dist.insert((from, h), 0);
+                    heap.push(Reverse((0u32, from, h)));
+                }
+            }
+            Some(ends) => {
+                for &d in ends {
+                    let n = step(from, d);
+                    if (n.0 as u16, n.1 as u16) == to && n.0 >= 0 && n.1 >= 0 && arrive.contains(&d)
+                    {
+                        return Ok(Vec::new()); // already next to each other
+                    }
+                    if free(n) {
+                        let s = ((n.0 as u16, n.1 as u16), d);
+                        dist.insert(s, len(d));
+                        heap.push(Reverse((len(d), s.0, d)));
+                    }
+                }
+            }
+        }
+        let mut goal: Option<(State, u8)> = None;
+        while let Some(Reverse((cost, cell, h))) = heap.pop() {
+            if dist.get(&(cell, h)).is_some_and(|&c| c < cost) {
+                continue;
+            }
+            if to_empty && cell == to {
+                goal = Some(((cell, h), h));
+                break;
+            }
+            let mut done = false;
+            for turn in [0i8, -1, 1, -2, 2] {
+                let h2 = (h as i8 + turn).rem_euclid(8) as u8;
+                // The start cell (when empty) may leave in its own heading only.
+                if from_empty && cell == from && turn != 0 {
+                    continue;
+                }
+                let n = step(cell, h2);
+                if n.0 < 0 || n.1 < 0 {
+                    continue;
+                }
+                let nc = (n.0 as u16, n.1 as u16);
+                let penalty = match turn.abs() {
+                    0 => 0,
+                    1 => 4,
+                    _ => 25,
+                };
+                if !to_empty && nc == to {
+                    if arrive.contains(&h2) {
+                        goal = Some(((cell, h), h2));
+                        done = true;
+                        break;
+                    }
+                    continue;
+                }
+                if !(free(n) || (to_empty && nc == to)) {
+                    continue;
+                }
+                let c2 = cost + len(h2) + penalty;
+                if dist.get(&(nc, h2)).is_none_or(|&c| c2 < c) {
+                    dist.insert((nc, h2), c2);
+                    prev.insert((nc, h2), (cell, h));
+                    heap.push(Reverse((c2, nc, h2)));
+                }
+            }
+            if done {
+                break;
+            }
+        }
+        let ((mut cell, mut h), mut out_h) = goal.ok_or(RouteError::NoRoute)?;
+        let mut tiles = Vec::new();
+        loop {
+            // A cell is entered heading `h` and left heading `out_h`.
+            let (shape, rot) = shape_for_exits((h + 4) % 8, out_h);
+            tiles.push(Element::Track {
+                x: cell.0,
+                y: cell.1,
+                shape,
+                rot,
+                block: block.clone(),
+                block2: None,
+                turnout: None,
+                turnout2: None,
+                turntable: None,
+                portal: None,
+            });
+            match prev.get(&(cell, h)) {
+                Some(&(c, hp)) => {
+                    out_h = h;
+                    cell = c;
+                    h = hp;
+                }
+                None => break,
+            }
+        }
+        tiles.reverse();
+        Ok(tiles)
+    }
+
+    /// Draw the track [`route_track`](Layout::route_track) finds, as one
+    /// change. Returns the cells drawn on.
+    ///
+    /// # Errors
+    ///
+    /// As [`route_track`](Layout::route_track); nothing is changed.
+    pub fn draw_route(
+        &mut self,
+        from: (u16, u16),
+        to: (u16, u16),
+        block: Option<String>,
+    ) -> Result<BTreeSet<(u16, u16)>, RouteError> {
+        let tiles = self.route_track(from, to, block)?;
+        let cells = tiles.iter().map(Element::pos).collect();
+        for t in tiles {
+            self.put(t);
+        }
+        Ok(cells)
+    }
+
+    /// The directions a route may leave or enter cell `c` by: `None` for an
+    /// empty cell (any), else its free ends.
+    fn end_dirs(&self, (x, y): (u16, u16)) -> Result<Option<Vec<u8>>, RouteError> {
+        match self.element_at(x, y).map(|i| &self.elements[i]) {
+            None => Ok(None),
+            Some(Element::Label { .. }) => Err(RouteError::NoFreeEnd { x, y }),
+            Some(_) => {
+                let ends = self.free_ends(x, y);
+                if ends.is_empty() {
+                    Err(RouteError::NoFreeEnd { x, y })
+                } else {
+                    Ok(Some(ends))
+                }
+            }
+        }
     }
 
     /// Move the tiles in `cells` by (`dx`, `dy`). Empty cells in the
@@ -828,15 +1923,33 @@ impl Layout {
 
     /// Rotate each track tile in `cells` clockwise by `delta` × 45° about its
     /// own centre (labels are unaffected). Use `delta = 7` for one step
-    /// anticlockwise.
+    /// anticlockwise. A turntable tile turns its turntable's tracks
+    /// instead, since those are stored as angles on the drawing.
     pub fn rotate_cells(&mut self, cells: &BTreeSet<(u16, u16)>, delta: u8) {
+        let mut tables = BTreeSet::new();
         for el in &mut self.elements {
             if !cells.contains(&el.pos()) {
                 continue;
             }
-            if let Element::Track { rot, .. } = el {
-                *rot = (*rot % 8 + delta % 8) % 8;
+            match el {
+                Element::Track {
+                    shape: Shape::Turntable,
+                    turntable,
+                    ..
+                } => tables.extend(turntable.clone()),
+                Element::Track { rot, .. } => *rot = (*rot % 8 + delta % 8) % 8,
+                Element::Label { .. } => {}
             }
+        }
+        for t in self
+            .turntables
+            .iter_mut()
+            .filter(|t| tables.contains(&t.id))
+        {
+            for tr in &mut t.tracks {
+                tr.angle = (tr.angle % 360) + (delta % 8) as u16 * 45;
+            }
+            t.sort_tracks();
         }
     }
 
@@ -865,9 +1978,12 @@ impl Layout {
             return false;
         }
         for el in &mut self.elements {
-            if let Element::Track { block, .. } = el {
+            if let Element::Track { block, block2, .. } = el {
                 if block.as_deref() == Some(id) {
                     *block = None;
+                }
+                if block2.as_deref() == Some(id) {
+                    *block2 = None;
                 }
             }
         }
@@ -889,9 +2005,15 @@ impl Layout {
             }
         }
         for el in &mut self.elements {
-            if let Element::Track { turnout, .. } = el {
+            if let Element::Track {
+                turnout, turnout2, ..
+            } = el
+            {
                 if turnout.as_deref() == Some(id) {
                     *turnout = None;
+                }
+                if turnout2.as_deref() == Some(id) {
+                    *turnout2 = None;
                 }
             }
         }
@@ -903,8 +2025,15 @@ impl Layout {
     /// For turnout shapes the tile keeps the turnout already shown on that
     /// cell, or gets a new blank turnout (added to
     /// [`turnouts`](Layout::turnouts)); the turnout id is returned. Other
-    /// shapes return `None`. Cells outside the grid are ignored (nothing is
-    /// placed, `None` is returned). `rot` is taken modulo 8.
+    /// shapes return `None`. A [`Shape::Turntable`] likewise keeps or gets a
+    /// [`Turntable`], new ones with a position for each track already
+    /// ending at the cell (see [`connected_dirs`](Layout::connected_dirs)).
+    /// A switch worked by two turnouts (3-way, slips) also keeps or gets a
+    /// second turnout, and a
+    /// [`Shape::Portal`] keeps its name or takes the first name that has
+    /// only one end (so placing two portals in a row pairs them), else a new
+    /// one. Cells outside the grid are ignored (nothing is placed, `None` is
+    /// returned). `rot` is taken modulo 8.
     pub fn place_track(
         &mut self,
         x: u16,
@@ -917,13 +2046,26 @@ impl Layout {
             return None;
         }
         let turnout = self.turnout_for(x, y, shape);
+        let turnout2 = self.turnout2_for(x, y, shape);
+        let turntable = self.turntable_for(x, y, shape);
+        let portal = self.portal_for(x, y, shape);
+        let block2 = match self.element_at(x, y).map(|i| &self.elements[i]) {
+            Some(Element::Track { block2, .. }) if shape.has_two_tracks() => block2.clone(),
+            _ => None,
+        };
+        // Turntables keep their geometry in their tracks, not the tile.
+        let rot = if shape.is_turntable() { 0 } else { rot % 8 };
         self.put(Element::Track {
             x,
             y,
             shape,
-            rot: rot % 8,
+            rot,
             block,
+            block2,
             turnout: turnout.clone(),
+            turnout2,
+            turntable,
+            portal,
         });
         turnout
     }
@@ -940,19 +2082,40 @@ impl Layout {
             return None;
         }
         let id = self.turnout_for(x, y, shape);
+        let id2 = self.turnout2_for(x, y, shape);
+        let table = self.turntable_for(x, y, shape);
+        let name = self.portal_for(x, y, shape);
         if let Element::Track {
-            shape: s, turnout, ..
+            shape: s,
+            block2,
+            turnout,
+            turnout2,
+            turntable,
+            portal,
+            rot,
+            ..
         } = &mut self.elements[i]
         {
             *s = shape;
             *turnout = id.clone();
+            *turnout2 = id2;
+            if !shape.has_two_tracks() {
+                *block2 = None;
+            }
+            *turntable = table;
+            *portal = name;
+            if shape.is_turntable() {
+                *rot = 0;
+            }
         }
         id
     }
 
     /// Paste copied tiles, shifted diagonally by the first offset `k` in
     /// `1..=16` (both x and y move by `k`) at which every tile lands inside
-    /// the grid on an empty cell. Turnout tiles get new blank turnouts;
+    /// the grid on an empty cell. Turnout tiles get new blank turnouts,
+    /// turntable tiles a copy of their turntable without events, and
+    /// portals new names (portals pasted together stay paired);
     /// references to blocks that don't exist in this layout are dropped.
     /// Returns the cells pasted to, or `None` (changing nothing) if no
     /// offset fits.
@@ -965,6 +2128,8 @@ impl Layout {
                 self.in_grid(nx, ny) && !occupied.contains(&(nx as u16, ny as u16))
             })
         })? as u16;
+        // Portals pasted together stay paired with each other, under new names.
+        let mut portal_names: std::collections::BTreeMap<String, String> = Default::default();
         let mut placed = BTreeSet::new();
         for t in tiles {
             let mut el = t.clone();
@@ -973,7 +2138,11 @@ impl Layout {
             if let Element::Track {
                 shape,
                 block,
+                block2,
                 turnout,
+                turnout2,
+                turntable,
+                portal,
                 rot,
                 ..
             } = &mut el
@@ -984,8 +2153,54 @@ impl Layout {
                 } else {
                     None
                 };
+                *turnout2 = if shape.has_two_turnouts() {
+                    Some(self.new_blank_turnout())
+                } else {
+                    None
+                };
+                *portal = if shape.is_portal() {
+                    let old = portal.clone().unwrap_or_default();
+                    let new = match portal_names.get(&old) {
+                        Some(n) => n.clone(),
+                        None => {
+                            let mut n = self.next_portal_name();
+                            while portal_names.values().any(|v| *v == n) {
+                                n.push('\'');
+                            }
+                            portal_names.insert(old, n.clone());
+                            n
+                        }
+                    };
+                    Some(new)
+                } else {
+                    None
+                };
+                *turntable = if shape.is_turntable() {
+                    let id = self.next_id("TT");
+                    let mut copy = turntable
+                        .as_deref()
+                        .and_then(|t| self.turntable(t))
+                        .cloned()
+                        .unwrap_or_default();
+                    copy.id = id.clone();
+                    copy.name = String::new();
+                    copy.cw_event = None;
+                    copy.ccw_event = None;
+                    for tr in &mut copy.tracks {
+                        tr.feedback_event = None;
+                    }
+                    self.turntables.push(copy);
+                    Some(id)
+                } else {
+                    None
+                };
                 if block.as_deref().is_some_and(|b| self.block(b).is_none()) {
                     *block = None;
+                }
+                if block2.as_deref().is_some_and(|b| self.block(b).is_none())
+                    || !shape.has_two_tracks()
+                {
+                    *block2 = None;
                 }
             }
             placed.insert(el.pos());
@@ -993,6 +2208,23 @@ impl Layout {
         }
         Some(placed)
     }
+}
+
+/// Example layouts bundled with the app, as (title, JSON) pairs.
+///
+/// * **TMRC (from SCab2)**: the MIT Tech Model Railroad Club's layout,
+///   converted from the track map of their SCab2 cab-control software
+///   (`full.nlay`, MIT licensed) with `tools/scab2s4d.py`. Block and
+///   turnout names match SCab2's; event IDs are left for you to fill in.
+pub const EXAMPLES: &[(&str, &str)] =
+    &[("TMRC (from SCab2)", include_str!("../layouts/tmrc.json"))];
+
+/// The bundled example with this title (see [`EXAMPLES`]).
+pub fn example(title: &str) -> Option<Layout> {
+    EXAMPLES
+        .iter()
+        .find(|(t, _)| *t == title)
+        .and_then(|(_, json)| Layout::from_json(json).ok())
 }
 
 /// The JSON Schema of the layout file format.
@@ -1051,6 +2283,10 @@ mod tests {
             rot: 0,
             block: None,
             turnout: None,
+            turntable: None,
+            turnout2: None,
+            block2: None,
+            portal: None,
         }
     }
 
@@ -1070,6 +2306,15 @@ mod tests {
         assert!(l.validate().is_empty(), "{:?}", l.validate());
         assert_eq!(Layout::from_json(&l.to_json()).unwrap(), l);
         assert!(!l.blocks.is_empty() && !l.turnouts.is_empty());
+    }
+
+    #[test]
+    fn examples_load_and_validate() {
+        for (title, _) in EXAMPLES {
+            let l = example(title).unwrap_or_else(|| panic!("{title} parses"));
+            assert!(l.validate().is_empty(), "{title}: {:?}", l.validate());
+            assert!(!l.turntables.is_empty());
+        }
     }
 
     #[test]
@@ -1105,6 +2350,10 @@ mod tests {
             rot: 9,
             block: None,
             turnout: None,
+            turntable: None,
+            turnout2: None,
+            block2: None,
+            portal: None,
         });
         assert_eq!(l.validate().len(), 1);
         assert!(l.validate()[0].0.contains("rotation 9"));
@@ -1120,6 +2369,10 @@ mod tests {
             rot: 0,
             block: Some("B9".into()),
             turnout: None,
+            turntable: None,
+            turnout2: None,
+            block2: None,
+            portal: None,
         });
         l.put(track(1, 1, Shape::TurnoutLeft));
         assert_eq!(l.elements.len(), 1);
@@ -1265,6 +2518,10 @@ mod tests {
             rot: 7,
             block: None,
             turnout: None,
+            turntable: None,
+            turnout2: None,
+            block2: None,
+            portal: None,
         });
         l.put(Element::Label {
             x: 1,
@@ -1366,6 +2623,10 @@ mod tests {
                 rot: 0,
                 block: Some("B1".into()),
                 turnout: Some("T1".into()),
+                turntable: None,
+                turnout2: None,
+                block2: None,
+                portal: None,
             },
             Element::Label {
                 x: 1,
@@ -1379,6 +2640,10 @@ mod tests {
                 rot: 0,
                 block: Some("gone".into()),
                 turnout: Some("T1".into()),
+                turntable: None,
+                turnout2: None,
+                block2: None,
+                portal: None,
             },
         ];
         let placed = l.paste(&clip[..2]).unwrap();
@@ -1410,6 +2675,378 @@ mod tests {
         ));
         assert!(l.validate().is_empty());
         assert_eq!(l.paste(&[]), Some(cells(&[])));
+    }
+
+    #[test]
+    fn turntable_placement_picks_up_connected_tracks() {
+        let mut l = Layout::empty("t");
+        l.place_track(4, 5, Shape::Straight, 0, None);
+        l.place_track(5, 4, Shape::Straight, 0, None); // N of (5,5) but running E-W
+        l.place_track(6, 5, Shape::Straight, 0, None);
+        assert_eq!(l.place_track(5, 5, Shape::Turntable, 3, None), None);
+        let Element::Track {
+            turntable: Some(id),
+            rot,
+            ..
+        } = &l.elements[3]
+        else {
+            panic!()
+        };
+        assert_eq!(*rot, 0);
+        let id = id.clone();
+        let angles: Vec<u16> = l
+            .turntable(&id)
+            .unwrap()
+            .tracks
+            .iter()
+            .map(|t| t.angle)
+            .collect();
+        assert_eq!(angles, vec![90, 270]);
+        // Turn the N track towards the pit and pick it up.
+        l.rotate_cells(&cells(&[(5, 4)]), 2);
+        assert_eq!(l.add_connected_leads(&id), 1);
+        assert_eq!(l.add_connected_leads(&id), 0);
+        assert!(l.validate().is_empty(), "{:?}", l.validate());
+        l.place_track(5, 5, Shape::Turntable, 0, None);
+        assert_eq!(l.turntables.len(), 1);
+        l.set_tile_shape(5, 5, Shape::Straight);
+        assert!(matches!(
+            &l.elements[3],
+            Element::Track {
+                turntable: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn rotating_a_turntable_turns_its_tracks() {
+        let mut l = Layout::empty("t");
+        let id = l.place_roundhouse(5, 5, 1, 0, 1, 2, None).unwrap();
+        l.rotate_cells(&cells(&[(5, 5)]), 2);
+        let t = l.turntable(&id).unwrap();
+        let named: Vec<(u16, &str)> = t
+            .tracks
+            .iter()
+            .map(|t| (t.angle, t.name.as_str()))
+            .collect();
+        assert_eq!(named, vec![(0, "Lead"), (173, "Stall 1"), (188, "Stall 2")]);
+        assert!(l.validate().is_empty());
+    }
+
+    #[test]
+    fn turntable_track_order_and_steps() {
+        let mut t = Turntable::default();
+        assert_eq!(t.free_stall_angle(), 90);
+        assert_eq!(t.add_track(370, "a", false), Some(0));
+        assert_eq!(t.add_track(10, "dup", false), None);
+        assert_eq!(t.free_stall_angle(), 190);
+        t.add_track(200, "b", true);
+        t.add_track(100, "c", true);
+        let names: Vec<&str> = t.tracks.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["a", "c", "b"]);
+        assert_eq!(t.step_from(0, -1), Some(2));
+        assert_eq!(t.step_from(2, 1), Some(0));
+        assert_eq!(t.tracks[0].dir(), None);
+        assert_eq!(t.tracks[0].display_name(), "a");
+        t.tracks[0].name.clear();
+        assert_eq!(t.tracks[0].display_name(), "10°");
+    }
+
+    #[test]
+    fn place_roundhouse_refuses_without_changes() {
+        let mut l = small(); // 4 x 3
+        let before = l.clone();
+        assert_eq!(
+            l.place_roundhouse(1, 1, 1, 0, 2, 3, None),
+            Err(MoveError::OutOfGrid { x: 0, y: 1 })
+        );
+        l.place_track(2, 1, Shape::Straight, 0, None);
+        let before2 = l.clone();
+        assert_eq!(
+            l.place_roundhouse(3, 1, 1, 0, 1, 3, None),
+            Err(MoveError::Overlap { x: 2, y: 1 })
+        );
+        assert_eq!(l, before2);
+        assert_ne!(l, before);
+        // Rotated 180°: the lead goes E.
+        let mut l = small();
+        let id = l
+            .place_roundhouse(1, 1, 1, 4, 2, 3, Some("B1".into()))
+            .unwrap();
+        let t = l.turntable(&id).unwrap();
+        assert_eq!(t.tracks.iter().find(|t| !t.stall).unwrap().angle, 90);
+        let stalls: Vec<u16> = t
+            .tracks
+            .iter()
+            .filter(|t| t.stall)
+            .map(|t| t.angle)
+            .collect();
+        assert_eq!(stalls, vec![255, 270, 285]);
+        assert!(matches!(
+            &l.elements[l.element_at(3, 1).unwrap()],
+            Element::Track {
+                shape: Shape::Straight,
+                rot: 0,
+                ..
+            }
+        ));
+        // A bigger pit starts the lead further out.
+        let mut l = Layout::empty("t");
+        l.place_roundhouse(10, 5, 3, 0, 1, 0, None).unwrap();
+        assert!(l.element_at(9, 5).is_none());
+        assert!(l.element_at(8, 5).is_some());
+    }
+
+    #[test]
+    fn turntables_paste_remove_and_validate() {
+        let mut l = Layout::demo();
+        let tt: Vec<Element> = l
+            .elements
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    Element::Track {
+                        shape: Shape::Turntable,
+                        ..
+                    }
+                )
+            })
+            .cloned()
+            .collect();
+        let placed = l.paste(&tt).unwrap();
+        let (x, y) = *placed.iter().next().unwrap();
+        let Element::Track {
+            turntable: Some(id),
+            ..
+        } = &l.elements[l.element_at(x, y).unwrap()]
+        else {
+            panic!()
+        };
+        let copy = l.turntable(id).unwrap();
+        assert_ne!(copy.id, "TT1");
+        assert_eq!(copy.tracks.len(), 8);
+        assert!(copy.cw_event.is_none() && copy.tracks.iter().all(|t| t.feedback_event.is_none()));
+        assert!(l.validate().is_empty());
+
+        assert!(l.remove_turntable("TT1"));
+        assert!(!l.remove_turntable("TT1"));
+        assert_eq!(l.validate().len(), 1);
+        assert!(l.validate()[0].0.contains("has no turntable assigned"));
+
+        let mut l = Layout::demo();
+        l.turntables[0].tracks[1].angle = l.turntables[0].tracks[0].angle;
+        l.turntables[0].tracks[2].angle = 400;
+        let issues = l.validate();
+        assert_eq!(issues.len(), 3, "{issues:?}");
+        assert!(issues[0].0.contains("two tracks at 75°"));
+        assert!(issues[1].0.contains("at 400°"));
+        assert!(issues[2].0.contains("clockwise order"));
+        assert_eq!(l.next_id("TT"), "TT2");
+    }
+
+    #[test]
+    fn three_way_tiles_get_two_turnouts() {
+        let mut l = small();
+        let t = l.place_track(1, 1, Shape::ThreeWay, 0, None).unwrap();
+        let Element::Track {
+            turnout2: Some(t2), ..
+        } = &l.elements[0]
+        else {
+            panic!()
+        };
+        let t2 = t2.clone();
+        assert_ne!(t, t2);
+        assert_eq!(l.turnouts.len(), 2);
+        // Re-placing keeps both; another turnout shape drops the second.
+        l.place_track(1, 1, Shape::ThreeWay, 2, None);
+        assert_eq!(l.turnouts.len(), 2);
+        assert!(l.validate().is_empty());
+        l.set_tile_shape(1, 1, Shape::TurnoutLeft);
+        assert!(matches!(
+            &l.elements[0],
+            Element::Track { turnout2: None, .. }
+        ));
+        l.set_tile_shape(1, 1, Shape::ThreeWay);
+        assert!(l.remove_turnout(&t2) || l.turnouts.len() == 3);
+        let mut l = small();
+        l.place_track(1, 1, Shape::ThreeWay, 0, None);
+        let Element::Track {
+            turnout2: Some(t2), ..
+        } = l.elements[0].clone()
+        else {
+            panic!()
+        };
+        assert!(l.remove_turnout(&t2));
+        assert!(l.validate()[0].0.contains("no right-hand turnout"));
+        // Slips get two turnouts too.
+        let mut l = small();
+        l.place_track(2, 1, Shape::DoubleSlip, 1, None);
+        assert_eq!(l.turnouts.len(), 2);
+        assert!(l.validate().is_empty());
+        assert!(Shape::DoubleSlip.is_slip_road((6, 3)));
+        assert!(!Shape::DoubleSlip.is_slip_road((6, 2)));
+        assert!(!Shape::ThreeWay.is_slip_road((6, 3)));
+    }
+
+    #[test]
+    fn crossings_have_a_second_block() {
+        let mut l = small();
+        for id in ["B1", "B2"] {
+            l.blocks.push(Block {
+                id: id.into(),
+                ..Default::default()
+            });
+        }
+        l.place_track(1, 1, Shape::CrossingDiag, 0, Some("B1".into()));
+        if let Element::Track { block2, .. } = &mut l.elements[0] {
+            *block2 = Some("B2".into());
+        }
+        assert!(l.validate().is_empty());
+        // Re-placing a crossing keeps it; a plain shape drops it.
+        l.place_track(1, 1, Shape::DoubleSlip, 0, Some("B1".into()));
+        assert!(matches!(&l.elements[0], Element::Track { block2: Some(b), .. } if b == "B2"));
+        assert!(l.remove_block("B2"));
+        assert!(matches!(
+            &l.elements[0],
+            Element::Track { block2: None, .. }
+        ));
+        if let Element::Track { block2, .. } = &mut l.elements[0] {
+            *block2 = Some("B9".into());
+        }
+        assert_eq!(l.validate()[0].0, "tile at 1,1 refers to unknown block B9");
+        l.set_tile_shape(1, 1, Shape::Straight);
+        assert!(matches!(
+            &l.elements[0],
+            Element::Track { block2: None, .. }
+        ));
+    }
+
+    #[test]
+    fn routes_join_free_ends_and_avoid_track() {
+        let mut l = Layout::empty("t");
+        l.grid = Grid { cols: 20, rows: 10 };
+        // A wall of track between the two ends forces a detour.
+        for y in 0..8 {
+            l.place_track(10, y, Shape::Straight, 2, None);
+        }
+        l.place_track(3, 2, Shape::Bumper, 4, None); // open to the E
+        l.place_track(16, 2, Shape::Bumper, 0, None); // open to the W
+        let before = l.clone();
+        let tiles = l.route_track((3, 2), (16, 2), Some("B1".into())).unwrap();
+        assert_eq!(l, before);
+        assert!(tiles
+            .iter()
+            .all(|t| t.pos().1 >= 2 && l.element_at(t.pos().0, t.pos().1).is_none()));
+        assert!(tiles.iter().any(|t| t.pos().1 == 9 || t.pos().1 == 8));
+        let cells = l.draw_route((3, 2), (16, 2), None).unwrap();
+        assert_eq!(cells.len(), tiles.len());
+        // Every new tile is joined at both ends, and so are the old ends.
+        for &(x, y) in &cells {
+            assert!(l.free_ends(x, y).is_empty(), "loose end at {x},{y}");
+        }
+        assert!(l.free_ends(3, 2).is_empty() && l.free_ends(16, 2).is_empty());
+        // Empty endpoints get tiles of their own.
+        let mut l = Layout::empty("t");
+        let tiles = l.route_track((1, 1), (5, 1), None).unwrap();
+        assert_eq!(tiles.len(), 5);
+        // Errors.
+        assert_eq!(
+            l.route_track((1, 1), (1, 1), None),
+            Err(RouteError::SameCell)
+        );
+        assert_eq!(
+            l.route_track((1, 1), (99, 1), None),
+            Err(RouteError::OutsideGrid)
+        );
+        l.place_track(1, 1, Shape::Straight, 0, None);
+        l.place_track(0, 1, Shape::Bumper, 4, None);
+        l.place_track(2, 1, Shape::Bumper, 0, None);
+        assert_eq!(
+            l.route_track((1, 1), (8, 8), None),
+            Err(RouteError::NoFreeEnd { x: 1, y: 1 })
+        );
+        let mut l = small(); // 4 x 3: box an end in
+        l.place_track(0, 1, Shape::Bumper, 4, None);
+        l.place_track(1, 0, Shape::Straight, 0, None);
+        l.place_track(1, 1, Shape::Straight, 2, None);
+        l.place_track(1, 2, Shape::Straight, 0, None);
+        assert_eq!(
+            l.route_track((0, 1), (3, 1), None),
+            Err(RouteError::NoRoute)
+        );
+    }
+
+    #[test]
+    fn exits_to_shapes_round_trip() {
+        for a in 0..8u8 {
+            for turn in [2u8, 3, 4, 5, 6] {
+                let b = (a + turn) % 8;
+                let (shape, rot) = shape_for_exits(a, b);
+                let legs = shape.legs().rotated(rot);
+                let (p, q) = legs.fixed[0];
+                assert!(
+                    (p, q) == (a, b) || (p, q) == (b, a),
+                    "{a}-{b} gave {shape:?} rot {rot}: {p}-{q}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn portals_pair_up() {
+        let mut l = Layout::empty("t");
+        l.place_track(0, 2, Shape::Portal, 4, None);
+        assert_eq!(l.validate()[0].0, "portal A has no other end");
+        l.place_track(31, 2, Shape::Portal, 0, None);
+        assert!(l.validate().is_empty());
+        assert_eq!(l.portal_partner(31, 2), Some((0, 2)));
+        assert_eq!(l.portal_partner(5, 5), None);
+        // The next pair is B; a third end of A is flagged.
+        l.place_track(0, 4, Shape::Portal, 4, None);
+        assert!(matches!(&l.elements[2], Element::Track { portal: Some(p), .. } if p == "B"));
+        l.put(Element::Track {
+            x: 3,
+            y: 3,
+            shape: Shape::Portal,
+            rot: 0,
+            block: None,
+            turnout: None,
+            turnout2: None,
+            block2: None,
+            turntable: None,
+            portal: Some("A".into()),
+        });
+        let issues = l.validate();
+        assert!(issues
+            .iter()
+            .any(|i| i.0 == "portal A has 3 ends (it needs exactly 2)"));
+        assert!(issues.iter().any(|i| i.0 == "portal B has no other end"));
+        // Pasting a pair gives it a fresh name, still paired.
+        let mut l = Layout::empty("t");
+        l.place_track(0, 2, Shape::Portal, 4, None);
+        l.place_track(4, 2, Shape::Portal, 0, None);
+        let clip = l.elements.clone();
+        l.paste(&clip).unwrap();
+        assert!(l.validate().is_empty(), "{:?}", l.validate());
+        assert_eq!(l.next_portal_name(), "C");
+        let mut l = Layout::empty("t");
+        for i in 0..27 {
+            l.put(Element::Track {
+                x: i,
+                y: 0,
+                shape: Shape::Portal,
+                rot: 0,
+                block: None,
+                turnout: None,
+                turnout2: None,
+                block2: None,
+                turntable: None,
+                portal: Some(l.next_portal_name()),
+            });
+        }
+        assert_eq!(l.next_portal_name(), "AB");
     }
 
     #[cfg(feature = "schema")]

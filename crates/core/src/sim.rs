@@ -18,6 +18,10 @@
 //!   slow-motion machine. (Unlike many real sensors, it reports again even
 //!   when the position didn't change.) Identify Producer on a feedback
 //!   event always answers with the current state.
+//! * **Turntables.** The `cw_event` and `ccw_event` are consumed; each
+//!   moves the bridge one track on. The bridge starts at the first track
+//!   and takes [`TURNTABLE_STEP_MS`] per track; as it lines up with each
+//!   track on the way, that track's feedback producer (if any) reports it.
 //! * **Command station and trains.** A Traction search with `ALLOCATE`
 //!   creates a train node for that DCC address; short and long addresses
 //!   (the `DCC_LONG_ADDRESS` search flag) are distinct trains. Trains accept
@@ -40,6 +44,8 @@ use crate::layout::Layout;
 /// Trains ask their controller for a keep-alive this often.
 pub const HEARTBEAT_MS: u64 = 10_000;
 const FEEDBACK_DELAY_MS: u64 = 400;
+/// How long a simulated turntable takes to move from one track to the next.
+pub const TURNTABLE_STEP_MS: u64 = 500;
 const OCCUPANCY_PERIOD_MS: u64 = 3_000;
 
 /// A simulated train node created by the command station.
@@ -71,6 +77,10 @@ pub struct Simulator {
     occupied: BTreeMap<String, bool>,
     turnouts: BTreeMap<String, Position>,
     pending_feedback: Vec<(u64, String, Position)>,
+    /// Where each bridge is headed (track index), after any queued steps.
+    turntables: BTreeMap<String, usize>,
+    /// Steps under way: (time the bridge lines up, id, track index).
+    turning: Vec<(u64, String, usize)>,
     trains: Vec<SimTrain>,
     rng: u64,
     next_occupancy: u64,
@@ -104,6 +114,13 @@ impl Simulator {
                 .iter()
                 .map(|t| (t.id.clone(), Position::Normal))
                 .collect(),
+            turntables: layout
+                .turntables
+                .iter()
+                .filter(|t| !t.tracks.is_empty())
+                .map(|t| (t.id.clone(), 0))
+                .collect(),
+            turning: Vec::new(),
             layout,
             pending_feedback: Vec::new(),
             trains: Vec::new(),
@@ -144,6 +161,23 @@ impl Simulator {
                 }
             }
         }
+        for t in &self.layout.turntables {
+            let at = self.turntables.get(&t.id).copied();
+            for e in [t.cw_event, t.ccw_event].into_iter().flatten() {
+                self.node.add_consumer(e, EventState::Unknown);
+            }
+            for (i, tr) in t.tracks.iter().enumerate() {
+                if let Some(e) = tr.feedback_event {
+                    self.node.add_producer(e, valid(at == Some(i)));
+                }
+            }
+        }
+    }
+
+    /// The track a simulated turntable's bridge lines up with, or is
+    /// turning towards.
+    pub fn turntable_position(&self, id: &str) -> Option<usize> {
+        self.turntables.get(id).copied()
     }
 
     /// The simulated position of a turnout.
@@ -234,6 +268,16 @@ impl Simulator {
         for (_, id, pos) in due {
             self.report_turnout(&id, pos);
         }
+        let arrived: Vec<_> = self
+            .turning
+            .iter()
+            .filter(|p| p.0 <= now)
+            .cloned()
+            .collect();
+        self.turning.retain(|p| p.0 > now);
+        for (_, id, dir) in arrived {
+            self.report_turntable(&id, dir);
+        }
         if self.random_occupancy && now >= self.next_occupancy && !self.layout.blocks.is_empty() {
             self.next_occupancy = now + OCCUPANCY_PERIOD_MS;
             let i = (self.rand() % self.layout.blocks.len() as u64) as usize;
@@ -261,6 +305,54 @@ impl Simulator {
         }
     }
 
+    fn report_turntable(&mut self, id: &str, at: usize) {
+        let Some(t) = self.layout.turntable(id).cloned() else {
+            return;
+        };
+        for (i, tr) in t.tracks.iter().enumerate() {
+            if let Some(e) = tr.feedback_event {
+                self.node.set_producer_state(e, valid(i == at));
+            }
+        }
+        if let Some(e) = t.tracks.get(at).and_then(|tr| tr.feedback_event) {
+            self.node.send(Message::Pcer(e));
+        }
+    }
+
+    fn turntable_command(&mut self, e: EventId, now: u64) {
+        let hit = self.layout.turntables.iter().find_map(|t| {
+            if t.cw_event == Some(e) {
+                Some((t.clone(), 1))
+            } else if t.ccw_event == Some(e) {
+                Some((t.clone(), -1))
+            } else {
+                None
+            }
+        });
+        let Some((t, step)) = hit else { return };
+        let from = self.turntables.get(&t.id).copied().unwrap_or(0);
+        let Some(to) = t.step_from(from, step) else {
+            return;
+        };
+        self.turntables.insert(t.id.clone(), to);
+        // The bridge leaves its track straight away...
+        for tr in &t.tracks {
+            if let Some(ev) = tr.feedback_event {
+                self.node.set_producer_state(ev, EventState::Invalid);
+            }
+        }
+        // ...and steps queue up behind each other.
+        let start = self
+            .turning
+            .iter()
+            .filter(|p| p.1 == t.id)
+            .map(|p| p.0)
+            .max()
+            .unwrap_or(now)
+            .max(now);
+        self.turning.push((start + TURNTABLE_STEP_MS, t.id, to));
+    }
+
     /// Process one frame from the bus.
     pub fn receive(&mut self, frame: &CanFrame, now: u64) {
         self.now = now;
@@ -272,7 +364,10 @@ impl Simulator {
         }
         let Some(rx) = rx else { return };
         match rx.msg {
-            Message::Pcer(e) => self.turnout_command(e, now),
+            Message::Pcer(e) => {
+                self.turnout_command(e, now);
+                self.turntable_command(e, now);
+            }
             Message::IdentifyProducer(e) if search::is_search_event(e) => self.train_search(e, now),
             _ => {}
         }

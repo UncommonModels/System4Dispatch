@@ -180,7 +180,7 @@ pub const KEY_LISTENER: &str = r#"
         const ctrl = e.ctrlKey || e.metaKey;
         const k = e.key;
         const plain = ["r", "R", "Delete", "Backspace", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
-                       "v", "V", "s", "S", "e", "E", "t", "T", "1", "2", "3", "4", "5", "6", "7", "8", "+", "=", "-", "0"];
+                       "v", "V", "s", "S", "e", "E", "t", "T", "a", "A", "1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "=", "-", "0"];
         const combo = ["z", "Z", "y", "Y", "a", "A", "c", "C", "x", "X", "v", "V", "d", "D", "s", "S", "o", "O", "=", "+", "-", "0"];
         if (ctrl ? !combo.includes(k) : (e.altKey || !plain.includes(k))) return;
         e.preventDefault();

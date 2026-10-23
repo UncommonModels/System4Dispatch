@@ -42,6 +42,13 @@
         "$ref": "#/$defs/Turnout"
       }
     },
+    "turntables": {
+      "description": "Turntables (drawn with [`Shape::Turntable`] tiles).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Turntable"
+      }
+    },
     "version": {
       "description": "Format version. Files newer than the app understands are refused.",
       "type": "integer",
@@ -105,6 +112,20 @@
                 "null"
               ]
             },
+            "block2": {
+              "description": "The block of the second track through a crossing tile\n([`Shape::has_two_tracks`]): the track that doesn't start at the\ntile's W edge. `None` means the same block as `block`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "portal": {
+              "description": "The name of a [`Shape::Portal`]'s link: the track continues at\nthe other portal with the same name.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "rot": {
               "description": "Clockwise rotation in 45° steps, `0..=7`.",
               "type": "integer",
@@ -119,6 +140,20 @@
             },
             "turnout": {
               "description": "The turnout this tile shows, by id (turnout shapes only).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "turnout2": {
+              "description": "The second turnout of a switch worked by two\n([`Shape::has_two_turnouts`]): the right-hand points of a 3-way\nswitch or slip. `turnout` is the left-hand one. See\n[`Shape::routes`] for what each combination sets.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "turntable": {
+              "description": "The turntable this tile shows, by id ([`Shape::Turntable`] only).",
               "type": [
                 "string",
                 "null"
@@ -260,6 +295,11 @@
           "const": "curve"
         },
         {
+          "description": "W to N (a 90° curve).",
+          "type": "string",
+          "const": "tight_curve"
+        },
+        {
           "description": "W to a dead end.",
           "type": "string",
           "const": "bumper"
@@ -288,6 +328,31 @@
           "description": "Normal W–NE, reverse W–SE.",
           "type": "string",
           "const": "wye"
+        },
+        {
+          "description": "Three routes from W: left to NE, straight to E, right to SE. Thrown\nby two turnouts: `turnout` reversed takes the left route, `turnout2`\nreversed the right route, both normal the straight route.",
+          "type": "string",
+          "const": "three_way"
+        },
+        {
+          "description": "A diamond crossing (W–E and NW–SE) with one slip road, W–SE. Worked\nby two turnouts; see [`Shape::routes`].",
+          "type": "string",
+          "const": "single_slip"
+        },
+        {
+          "description": "A diamond crossing (W–E and NW–SE) with both slip roads, W–SE and\nNW–E. Worked by two turnouts; see [`Shape::routes`].",
+          "type": "string",
+          "const": "double_slip"
+        },
+        {
+          "description": "A turntable pit, with its roundhouse. Its tracks come from the\n[`Turntable`], not from the tile's rotation.",
+          "type": "string",
+          "const": "turntable"
+        },
+        {
+          "description": "A track from W that leaves here and carries on at the other portal\nwith the same name, like a tunnel that wraps from one edge of the\npanel to the other.",
+          "type": "string",
+          "const": "portal"
         }
       ]
     },
@@ -351,6 +416,97 @@
       },
       "required": [
         "id"
+      ]
+    },
+    "Turntable": {
+      "description": "A turntable and its roundhouse: a pit drawn centred on a\n[`Shape::Turntable`] tile, with tracks radiating from it at any angle.\nLead tracks join the rest of the panel; stalls are drawn inside an engine\nhouse around the pit.\n\nLike a turnout, it is driven by two events: `cw_event` turns the bridge\nto the next track clockwise and `ccw_event` to the next one\ncounter-clockwise. A track's optional `feedback_event` reports that the\nbridge has lined up with it.",
+      "type": "object",
+      "properties": {
+        "ccw_event": {
+          "description": "Event that turns the bridge to the next track counter-clockwise.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cw_event": {
+          "description": "Event that turns the bridge to the next track clockwise.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "description": "Unique id (shared namespace with blocks and turnouts), e.g. `\"TT1\"`.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Display name; the id is shown when empty.",
+          "type": "string",
+          "default": ""
+        },
+        "size": {
+          "description": "Pit diameter in grid cells, at least 1.",
+          "type": "integer",
+          "format": "uint8",
+          "default": 1,
+          "maximum": 8,
+          "minimum": 1
+        },
+        "tracks": {
+          "description": "The tracks around the pit, in clockwise order from north (see\n[`Turntable::sort_tracks`]). The bridge stops at each in turn.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TurntableTrack"
+          }
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "TurntableTrack": {
+      "description": "A track leaving a turntable pit.",
+      "type": "object",
+      "properties": {
+        "angle": {
+          "description": "Direction from the pit's centre, in whole degrees clockwise from\nnorth (`0..360`), on the drawing as shown. Leads should use multiples\nof 45 so they meet the grid's track.",
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 359,
+          "minimum": 0
+        },
+        "feedback_event": {
+          "description": "Event produced when the bridge lines up with this track (optional).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "description": "Display name, e.g. `\"Stall 3\"`; may be empty.",
+          "type": "string"
+        },
+        "stall": {
+          "description": "A roundhouse stall (drawn inside the engine house) rather than a lead.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "angle"
       ]
     }
   }

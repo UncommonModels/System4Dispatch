@@ -24,11 +24,12 @@ If you're using the simulator, applying rebuilds it around the new layout, with 
 At the top of the inspector:
 
 - **Name**: shown in the top bar under "System4Dispatch", and used as the file name when you export.
-- **Columns** and **Rows**: the grid size, from 4 to 200 each. Shrinking the grid doesn't delete tiles that fall outside it, but they are reported as problems (see below).
+- **Columns** and **Rows**: the grid size, from 4 to 400 each. Shrinking the grid doesn't delete tiles that fall outside it, but they are reported as problems (see below).
 - **Apply & save** and **Revert**: see above.
 - **Export…** saves the draft (or the live layout, if there's no draft) as a `.json` file: a download in the web app, a "Save as" dialog on desktop.
 - **Import…** loads a `.json` layout file into the draft. Press Apply & save to use it. Files from a newer, incompatible version of the app are refused with an explanation.
 - **Demo** loads the built-in Hilltown Subdivision demo into the draft.
+- **Load example: TMRC (from SCab2)** (File menu) loads the MIT Tech Model Railroad Club's layout, converted from the track map in their [SCab2](https://github.com/TechModelRailroadClub/SCab2) cab-control software. Block and turnout names match SCab2's (`B10`, `S10`, …); the event IDs are empty for you to fill in. To convert another SCab2 `.nlay` map yourself, run `python3 tools/scab2s4d.py map.nlay "Name" > map.json` from the repository and import the result.
 - **New** starts an empty layout (after asking).
 
 ### Problems list
@@ -50,7 +51,9 @@ The toolbar's first row holds the tools:
 | Tool | What it does |
 |---|---|
 | **☝ Select** | Click a tile to select it, drag a box to select several, Shift- or Ctrl-click (⌘-click on a Mac) to add or remove tiles. See [Selecting several tiles](#selecting-several-tiles). |
-| **Straight**, **Curve**, **Bumper**, **Crossing**, **Diamond**, **Turnout L**, **Turnout R**, **Wye** | Place that track piece. Click a cell, or hold the button down and drag to lay a run of track. Placing on a cell that already has something replaces it. |
+| **Straight**, **Curve**, **Tight curve**, **Bumper**, **Crossing**, **Diamond**, **Turnout L**, **Turnout R**, **Wye**, **3-way**, **Single slip**, **Double slip**, **Turntable**, **Portal** | Place that track piece. Click a cell, or hold the button down and drag to lay a run of track. Placing on a cell that already has something replaces it. Keys **1**–**9** pick the first nine. |
+| **Auto track** (A) | Click where new track should start, then where it should end, and the editor draws track between them, previewing the route as you move the pointer. Clicking the end of an existing line joins onto it; clicking an empty cell starts or ends the new track there. The route only uses empty cells, prefers straight runs and 45° bends, uses a 90° tight curve only when it must, and goes round anything in the way. **Esc** cancels. |
+| **Turntable & roundhouse** | Click a cell to put a turntable there, two cells across, with a two-tile lead track to its left and a seven-stall roundhouse fanned around the other side, all in the *Put new tiles in* block. Press **R** first to turn the whole arrangement. |
 | **T Label** | Click a cell to place a text label (initially "Label"). The editor switches to Select with the new label selected so you can type its text in the inspector. |
 | **⌫ Erase** | Click or drag over cells to remove whatever is there. |
 
@@ -60,12 +63,18 @@ The track pieces, before rotation:
 |---|---|
 | Straight | straight through, left edge to right edge |
 | Curve | a gentle 45° curve, from the left edge to the top-right corner |
+| Tight curve | a 90° bend, from the left edge to the top edge |
 | Bumper | a track end with a buffer stop in the middle of the tile |
 | Crossing | two straight tracks crossing at right angles |
 | Diamond | a straight track crossed by a diagonal one (a 45° diamond crossing) |
 | Turnout L | points on the left; normal goes straight on, reverse diverges up to the top-right corner |
 | Turnout R | the same, diverging down to the bottom-right corner |
 | Wye | points on the left; normal goes to the top-right corner, reverse to the bottom-right |
+| 3-way | points on the left; routes to the top-right corner, straight on, and the bottom-right corner |
+| Single slip | a diamond crossing with one slip road, from the left edge to the bottom-right corner |
+| Double slip | a diamond crossing with both slip roads |
+| Turntable | a turntable pit and its roundhouse; its tracks are set in the Turntables tab (see [Turntables](#turntables)) |
+| Portal | a track from the left edge that leaves with an arrow and carries on at the other portal with the same name (see [Portals](#portals)) |
 
 The palette icons show each piece at the current rotation.
 
@@ -142,6 +151,31 @@ To make two turnouts always move together (for example both ends of a crossover)
 
 Linking a turnout to a new partner automatically unlinks any previous partner of either turnout, and choosing "— alone —" removes the link from both. A turnout tile's inspector also shows "Thrown together with T2" (plus "(opposite position)" when applicable).
 
+## Turntables
+
+A turntable is a **Turntable** tile plus an entry in the **Turntables** tab, which holds the whole roundhouse. The easiest way to make one is the **Turntable & roundhouse** tool. Placing a single **Turntable** piece instead gives it a lead for every track that already runs into its cell.
+
+For each turntable you can set:
+
+- **Name** and **Pit size**: how many cells across the pit is drawn.
+- **Clockwise** and **Counter-clockwise**: the two events that turn the bridge one track in each direction, like a turnout's normal and reverse events.
+- **Tracks**: each has an **angle** in degrees clockwise from north (any angle; leads should be multiples of 45 to meet the grid), a **name**, a **Stall** tick box (stalls are drawn inside the engine house), and an optional **Arrived** event the controller sends when the bridge lines up with it. Tracks are kept in clockwise order, which is the order the bridge steps through them.
+
+**+ Stall** adds a stall in the widest gap, **+ Lead…** adds a lead in a grid direction, and **Connected leads** adds a lead for every track that runs into the pit. **✕** removes a track. **R** or the rotate buttons turn the whole turntable.
+
+## 3-way switches and slips
+
+A **3-way**, **Single slip** or **Double slip** piece is worked by two turnouts, so placing one creates both. The inspector lists them as the **Left-hand turnout** and **Right-hand turnout**, and shows which combination sets which route (see the [file format](layout-format.md#shapes) for the table). Each turnout keeps its own events and feedback in the Turnouts tab. On the panel, clicking the switch steps through its routes.
+
+## Crossings with two blocks
+
+A **Crossing**, **Diamond** or slip carries two separate tracks, which are often in different detection blocks. Select the tile and set **Block (W–E track)** and **Block (other track)** in the inspector; each track is then coloured and detected by its own block. Leave the other track on *No block* to use one block for both.
+
+## Portals
+
+A **Portal** is a track end that carries on at another portal with the same name, like the tunnel in Pac-Man. Use it for a line that runs off one edge of the panel and comes back on the other, or to continue a branch somewhere with more room. Placing a portal while another portal has no partner pairs them up automatically; otherwise it gets the next free name (A, B, C, …). The inspector lets you rename it, and **Select the other end** jumps to its partner. A portal with no partner, or a name used three times, is listed as a problem.
+
+## Selecting several tiles
 ## Selecting several tiles
 
 With the **☝ Select** tool:
@@ -168,6 +202,10 @@ With more than one tile selected, the inspector shows "*n* tiles selected" and o
 - **Rotate each ⟲ ⟳**: rotate every selected tile 45° about its own centre. This turns each piece in place; it doesn't rotate the group as a whole.
 - **Clear selection**.
 - **Delete *n* tiles**.
+
+### Zooming and scrolling
+
+The canvas scrolls like any page. **Ctrl+wheel** (or a trackpad pinch) zooms about the pointer, **+** and **−** zoom about the middle, **0** returns to actual size, and **View → Fit to window** shows the whole layout. Drag with the **middle mouse button** to pan; the left button stays free for selecting and drawing.
 
 ### Moving tiles
 
