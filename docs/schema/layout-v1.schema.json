@@ -290,14 +290,9 @@
           "const": "straight"
         },
         {
-          "description": "W to NE (a 45° curve).",
+          "description": "W to NE (a 45° curve). `\"tight_curve\"`, a 90° bend in some\ndevelopment builds, is read as this.",
           "type": "string",
           "const": "curve"
-        },
-        {
-          "description": "W to N (a 90° curve).",
-          "type": "string",
-          "const": "tight_curve"
         },
         {
           "description": "W to a dead end.",

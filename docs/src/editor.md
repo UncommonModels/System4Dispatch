@@ -26,7 +26,7 @@ At the top of the inspector:
 - **Name**: shown in the top bar under "System4Dispatch", and used as the file name when you export.
 - **Columns** and **Rows**: the grid size, from 4 to 400 each. Shrinking the grid doesn't delete tiles that fall outside it, but they are reported as problems (see below).
 - **Apply & save** and **Revert**: see above.
-- **Export…** saves the draft (or the live layout, if there's no draft) as a `.json` file: a download in the web app, a "Save as" dialog on desktop.
+- **Save to disk…** saves the draft (or the live layout, if there's no draft) as a `.json` file: a download in the web app, a "Save as" dialog on desktop.
 - **Import…** loads a `.json` layout file into the draft. Press Apply & save to use it. Files from a newer, incompatible version of the app are refused with an explanation.
 - **Demo** loads the built-in Hilltown Subdivision demo into the draft.
 - **Load example: TMRC (from SCab2)** (File menu) loads the MIT Tech Model Railroad Club's layout, converted from the track map in their [SCab2](https://github.com/TechModelRailroadClub/SCab2) cab-control software. Block and turnout names match SCab2's (`B10`, `S10`, …); the event IDs are empty for you to fill in. To convert another SCab2 `.nlay` map yourself, run `python3 tools/scab2s4d.py map.nlay "Name" > map.json` from the repository and import the result.
@@ -51,8 +51,8 @@ The toolbar's first row holds the tools:
 | Tool | What it does |
 |---|---|
 | **☝ Select** | Click a tile to select it, drag a box to select several, Shift- or Ctrl-click (⌘-click on a Mac) to add or remove tiles. See [Selecting several tiles](#selecting-several-tiles). |
-| **Straight**, **Curve**, **Tight curve**, **Bumper**, **Crossing**, **Diamond**, **Turnout L**, **Turnout R**, **Wye**, **3-way**, **Single slip**, **Double slip**, **Turntable**, **Portal** | Place that track piece. Click a cell, or hold the button down and drag to lay a run of track. Placing on a cell that already has something replaces it. Keys **1**–**9** pick the first nine. |
-| **Auto track** (A) | Click where new track should start, then where it should end, and the editor draws track between them, previewing the route as you move the pointer. Clicking the end of an existing line joins onto it; clicking an empty cell starts or ends the new track there. The route only uses empty cells, prefers straight runs and 45° bends, uses a 90° tight curve only when it must, and goes round anything in the way. **Esc** cancels. |
+| **Straight**, **Curve**, **Bumper**, **Crossing**, **Diamond**, **Turnout L**, **Turnout R**, **Wye**, **3-way**, **Single slip**, **Double slip**, **Turntable**, **Portal** | Place that track piece. Click a cell, or hold the button down and drag to lay a run of track. Placing on a cell that already has something replaces it. Keys **1**–**9** pick the first nine. |
+| **Auto track** (A) | Click where new track should start, then where it should end, and the editor draws track between them, previewing the route as you move the pointer. Clicking the end of an existing line joins onto it; clicking an empty cell starts or ends the new track there. The route only uses empty cells, prefers straight runs, bends only 45° at a time, and goes round anything in the way. **Esc** cancels. |
 | **Turntable & roundhouse** | Click a cell to put a turntable there, two cells across, with a two-tile lead track to its left and a seven-stall roundhouse fanned around the other side, all in the *Put new tiles in* block. Press **R** first to turn the whole arrangement. |
 | **T Label** | Click a cell to place a text label (initially "Label"). The editor switches to Select with the new label selected so you can type its text in the inspector. |
 | **⌫ Erase** | Click or drag over cells to remove whatever is there. |
@@ -63,7 +63,6 @@ The track pieces, before rotation:
 |---|---|
 | Straight | straight through, left edge to right edge |
 | Curve | a gentle 45° curve, from the left edge to the top-right corner |
-| Tight curve | a 90° bend, from the left edge to the top edge |
 | Bumper | a track end with a buffer stop in the middle of the tile |
 | Crossing | two straight tracks crossing at right angles |
 | Diamond | a straight track crossed by a diagonal one (a 45° diamond crossing) |

@@ -115,7 +115,7 @@ Colours are assigned by position in the Blocks table, so deleting a block shifts
 
 ### Where is my layout saved?
 
-In the browser's local storage (web app) or in the `System4Dispatch` folder inside your system's configuration directory (desktop). See [Where things are saved](settings.md#where-things-are-saved). Use **Export…** to keep a copy or move it to another computer.
+In the browser's local storage (web app) or in the `System4Dispatch` folder inside your system's configuration directory (desktop). See [Where things are saved](settings.md#where-things-are-saved). Use **Save to disk…** to keep a copy or move it to another computer.
 
 ### Can several people run panels at once?
 

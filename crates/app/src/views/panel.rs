@@ -106,7 +106,7 @@ pub fn PanelView() -> Element {
                 } else {
                     div { class: "zoom-bar",
                         button { class: "icon-btn", title: "Zoom out (Ctrl+wheel)", onclick: move |_| zoom.zoom_by(1.0 / 1.25), "−" }
-                        button { class: "zoom-label", title: "Fit to the window", onclick: move |_| zoom.set(None), "{zoom.label()}" }
+                        button { class: "zoom-label", title: "Fit the whole height of the layout", onclick: move |_| zoom.set(None), "{zoom.label()}" }
                         button { class: "icon-btn", title: "Zoom in (Ctrl+wheel)", onclick: move |_| zoom.zoom_by(1.25), "+" }
                     }
                     div { class: "panel-scroll", title: "Drag to scroll, Ctrl+wheel to zoom",

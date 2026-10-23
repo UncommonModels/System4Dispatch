@@ -6,7 +6,7 @@ If the layout has no track yet, the panel says so and points you to the Editor. 
 
 ## Zooming and scrolling
 
-The diagram starts fitted to the window. Use **+** and **−** in its top-right corner, or **Ctrl+wheel** (a pinch on a trackpad), to zoom; **Fit** goes back to fitting the window. When zoomed in, **drag** the diagram (or use the scroll bars, or swipe on a touch screen) to move around. A drag never throws a turnout; only a click does.
+The diagram starts fitted to the height of the window, so every row of the layout is in view; a long layout scrolls sideways. Use **+** and **−** in its top-right corner, or **Ctrl+wheel** (a pinch on a trackpad), to zoom; **Fit** goes back to fitting the height. **Drag** the diagram (or use the scroll bars, or swipe on a touch screen) to move around. A drag never throws a turnout; only a click does.
 
 ## Track colours
 

@@ -49,6 +49,6 @@ The desktop config folder is `System4Dispatch` inside your system's configuratio
 | macOS | `~/Library/Application Support/System4Dispatch/` |
 | Windows | `%APPDATA%\System4Dispatch\` |
 
-Web app data belongs to the browser and the site: a different browser, a private window, or clearing site data starts afresh with the demo layout and a new Node ID. Use **Export…** in the editor to keep a copy of your layout.
+Web app data belongs to the browser and the site: a different browser, a private window, or clearing site data starts afresh with the demo layout and a new Node ID. Use **Save to disk…** in the editor to keep a copy of your layout.
 
 The web app also works **offline** once it has been opened while online: it keeps a copy of itself in the browser. In Chrome and Edge you can install it as an app from the address bar.

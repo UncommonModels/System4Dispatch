@@ -1,6 +1,6 @@
 # Layout file format
 
-A layout is a single JSON file. The editor's **Export…** and **Import…** buttons read and write it, and the app stores the applied layout in the same format. You can also write or edit one by hand, or generate one with a script. This chapter describes every field.
+A layout is a single JSON file. The editor's **Save to disk…** and **Import…** buttons read and write it, and the app stores the applied layout in the same format. You can also write or edit one by hand, or generate one with a script. This chapter describes every field.
 
 The format is defined by `crates/core/src/layout.rs`. The demo layout is [`crates/core/demo-layout.json`](https://github.com/UncommonModels/System4Dispatch/blob/main/crates/core/demo-layout.json) in the repository.
 
@@ -200,7 +200,6 @@ Unrotated (`rot` 0), every shape has a track end at the **west** edge (6):
 |---|---|---|---|---|
 | `straight` | Straight | 6–2 (W–E) | | |
 | `curve` | Curve | 6–1 (W–NE) | | |
-| `tight_curve` | Tight curve | 6–0 (W–N) | | |
 | `bumper` | Bumper | 6–centre | | |
 | `crossing` | Crossing | 6–2 and 0–4 | | |
 | `crossing_diag` | Diamond | 6–2 and 7–3 | | |
@@ -229,7 +228,7 @@ A `turntable` tile draws its turntable's pit, tracks, roundhouse and bridge (see
 
 A `portal` is a track end that carries on somewhere else, like the tunnel in Pac-Man that leaves one side of the screen and comes back on the other. The track enters from the W edge (before rotation) and the arrow points the way it leaves. Two portals with the same `portal` name are the two ends of one connection, so a line that runs off the east edge of the panel can come back on at the west edge, or a long branch can be drawn somewhere with more room.
 
-Bends are drawn as two straight legs meeting at the tile centre, so curves look angular while keeping the 45° grid.
+Bends are drawn as two straight legs meeting at the tile centre, so curves look angular while keeping the 45° grid. There is no 90° bend: a sharper turn is made of two 45° curves. (Files from development builds that used `tight_curve` load it as a `curve`.)
 
 ### Rotation
 

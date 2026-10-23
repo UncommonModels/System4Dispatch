@@ -1,8 +1,9 @@
 //! Zooming and panning a scrollable track drawing.
 //!
 //! The drawing sits in a scrolling container. Zoom is the size of one grid
-//! cell in CSS pixels, or `None` to fit the drawing to the container's
-//! width. A small script on the page does the parts that need the live DOM:
+//! cell in CSS pixels, or `None` to fit (the stylesheet decides how: the
+//! panel fits the height, the editor the width). A small script on the
+//! page does the parts that need the live DOM:
 //! Ctrl+wheel (and trackpad pinch) zooming about the pointer, keeping the
 //! same spot under the pointer as the drawing grows or shrinks, and
 //! drag-to-pan. Zooming resizes the drawing in the browser straight away
@@ -18,7 +19,7 @@ pub const MAX_PX: f32 = 96.0;
 /// Zoom state for one drawing; see [`use_zoom_pan`].
 #[derive(Clone, Copy)]
 pub struct ZoomPan {
-    /// Cell size in CSS pixels; `None` fits the drawing to the width.
+    /// Cell size in CSS pixels; `None` fits the drawing (see the module docs).
     pub px: Signal<Option<f32>>,
     script: Signal<Option<document::Eval>>,
 }
@@ -31,7 +32,7 @@ impl ZoomPan {
         }
     }
 
-    /// Set the cell size directly (`None` fits to the width).
+    /// Set the cell size directly (`None` fits).
     pub fn set(&self, px: Option<f32>) {
         let px = px.map(|p| p.clamp(MIN_PX, MAX_PX));
         if let Some(e) = *self.script.peek() {

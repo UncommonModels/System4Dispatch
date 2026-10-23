@@ -122,10 +122,6 @@ def shape_for(exits, reverse_dirs):
             # Curve: W (6) to NE (1), i.e. leg a, then a + 3.
             first = a if diff == 3 else b
             return "curve", (first - 6) % 8, False
-        if diff in (2, 6):
-            # Tight curve: W (6) to N (0).
-            first = a if diff == 2 else b
-            return "tight_curve", (first - 6) % 8, False
         return None
     if n == 3:
         for p in e:
@@ -292,18 +288,6 @@ def convert(path, name):
             switch_of_track[n] = s["name"]
         reverse_tracks |= set(s["lines1"])
 
-    cols = [c[0] for c in exits]
-    rows = [c[1] for c in exits]
-    # Leave room for roundhouses, which reach beyond their tile.
-    for _, c, _, size in turntables:
-        reach = math.ceil(size / 2 + 1.6)
-        cols += [c[0] - reach, c[0] + reach]
-        rows += [c[1] - reach, c[1] + reach]
-    labels = [(snap(t["coord"]), t["Text"]) for t in r["PTextPoint"]]
-    x0 = min(cols + [l[0][0] for l in labels]) - 1
-    y0 = min(rows + [l[0][1] for l in labels]) - 1
-    x1 = max(cols) + 2
-    y1 = max(rows + [l[0][1] for l in labels]) + 2
 
     used_turnouts = []
     track_nums = set(track_by_num)
@@ -348,6 +332,130 @@ def convert(path, name):
                 break
             exits[a], exits[b], exits[t] = old
 
+    # A 90° corner can't be drawn on the 45° grid, so cut it at 45°. A
+    # square corner (say E and S) loses its corner cell and its two
+    # neighbours join diagonally; a pointed one (NE and SE, the end of a
+    # tight loop) moves its point one cell out, onto a short straight.
+    # Only kept if every tile touched can still be drawn.
+    def is_sharp(c):
+        e = sorted(exits.get(c, ()))
+        return len(e) == 2 and (e[1] - e[0]) % 8 in (2, 6)
+
+    def is_sharp_set(v):
+        e = sorted(v)
+        return len(e) == 2 and (e[1] - e[0]) % 8 in (2, 6)
+
+    def toward(a, b):
+        return dir_of(b[0] - a[0], b[1] - a[1])
+
+    def reroute(x):
+        e1, e2 = sorted(exits[x])
+        if (e2 - e1) % 8 == 6:
+            e1, e2 = e2, e1
+        n1 = (x[0] + STEP[e1][0], x[1] + STEP[e1][1])
+        n2 = (x[0] + STEP[e2][0], x[1] + STEP[e2][1])
+        if n1 not in exits or n2 not in exits:
+            return False
+        saved = {c: set(exits[c]) for c in (x, n1, n2)}
+        new = {}
+        if e1 % 2 == 0:  # square corner: n1 and n2 are diagonal neighbours
+            new[n1] = (exits[n1] - {(e1 + 4) % 8}) | {toward(n1, n2)}
+            new[n2] = (exits[n2] - {(e2 + 4) % 8}) | {toward(n2, n1)}
+        else:  # pointed corner: go through the cell between n1 and n2
+            m = (x[0] + STEP[(e1 + 1) % 8][0], x[1] + STEP[(e1 + 1) % 8][1])
+            if m in exits:
+                return False
+            new[m] = {toward(m, n1), toward(m, n2)}
+            new[n1] = (exits[n1] - {(e1 + 4) % 8}) | {toward(n1, m)}
+            new[n2] = (exits[n2] - {(e2 + 4) % 8}) | {toward(n2, m)}
+            cell_tracks[m] = cell_tracks[x]
+        # A neighbour may end up with a 90° bend of its own; a later pass
+        # cuts that one too.
+        ok = lambda v: shape_for(v, set()) is not None or is_sharp_set(v)
+        if any(len(v) != len(saved[c]) for c, v in new.items() if c in saved) or \
+                not all(ok(v) for v in new.values()):
+            for c, v in saved.items():
+                exits[c] = v
+            return False
+        exits.pop(x)
+        exits.update(new)
+        return True
+
+    for _ in range(6):
+        if not any([reroute(c) for c in list(exits) if is_sharp(c)]):
+            break
+
+    # What's left is a turn too tight for 45° bends (a reversing loop whose
+    # tracks are only two rows apart). Redraw it a little wider: take out
+    # the corner and up to k plain cells each side, and route between the
+    # ends that remain through free cells, using at most 8 more cells.
+    def detour(corner, k):
+        removed = {corner}
+        anchors = []
+        for e in sorted(exits[corner]):
+            d, cur = e, (corner[0] + STEP[e][0], corner[1] + STEP[e][1])
+            for _ in range(k):
+                ex = exits.get(cur, set())
+                if len(ex) != 2 or cur in removed or shape_for(ex, set()) is None:
+                    break
+                removed.add(cur)
+                d = next(x for x in ex if x != (d + 4) % 8)
+                cur = (cur[0] + STEP[d][0], cur[1] + STEP[d][1])
+            if cur in removed:
+                return False
+            anchors.append((cur, d))
+        (a, da), (b, db) = anchors
+        out_a = (da + 4) % 8
+        free = lambda c: c not in exits or c in removed
+        start = (a[0] + STEP[out_a][0], a[1] + STEP[out_a][1])
+        if not free(start):
+            return False
+        import heapq
+        best = {(start, out_a): 0}
+        prev = {}
+        heap = [(0, 1, start, out_a)]
+        goal = None
+        while heap:
+            cost, n_cells, c, h = heapq.heappop(heap)
+            if cost > best.get((c, h), 1e9) or n_cells > len(removed) + 8:
+                continue
+            for turn in (0, -1, 1):
+                h2 = (h + turn) % 8
+                n = (c[0] + STEP[h2][0], c[1] + STEP[h2][1])
+                if n == b and h2 == db:
+                    goal = (c, h, h2)
+                    break
+                if not free(n) or n == b:
+                    continue
+                c2 = cost + (10 if h2 % 2 == 0 else 14) + (4 if turn else 0)
+                if c2 < best.get((n, h2), 1e9):
+                    best[(n, h2)] = c2
+                    prev[(n, h2)] = (c, h)
+                    heapq.heappush(heap, (c2, n_cells + 1, n, h2))
+            if goal:
+                break
+        if not goal:
+            return False
+        c, h, last = goal
+        path = [(c, h)]
+        while (c, h) in prev:
+            c, h = prev[(c, h)]
+            path.append((c, h))
+        path.reverse()
+        tracks = set().union(*(cell_tracks[r] for r in removed))
+        for r in removed:
+            exits.pop(r, None)
+        for i, (c, h) in enumerate(path):
+            out = path[i + 1][1] if i + 1 < len(path) else last
+            exits[c] = {(h + 4) % 8, out}
+            cell_tracks[c] = tracks
+        return True
+
+    for corner in [c for c in list(exits) if is_sharp(c)]:
+        if is_sharp(corner):
+            any(detour(corner, k) for k in (1, 2, 3))
+    unsmoothed = [c for c in exits if is_sharp(c)]
+
     def best_effort(c, rev_dirs):
         """The drawable shape that keeps the most of a cell's exits."""
         e = sorted(exits[c])
@@ -359,6 +467,21 @@ def convert(path, name):
             if got:
                 return got
         return shape_for({e[0]}, set())
+
+    cols = [c[0] for c in exits]
+    rows = [c[1] for c in exits]
+    # Leave room for roundhouses, which reach beyond their tile.
+    for _, c, _, size in turntables:
+        reach = math.ceil(size / 2 + 1.6)
+        cols += [c[0] - reach, c[0] + reach]
+        rows += [c[1] - reach, c[1] + reach]
+    labels = [(snap(t["coord"]), t["Text"]) for t in r["PTextPoint"]]
+    x0 = min(cols + [l[0][0] for l in labels]) - 1
+    y0 = min(rows + [l[0][1] for l in labels]) - 1
+    x1 = max(cols) + 2
+    y1 = max(rows + [l[0][1] for l in labels]) + 2
+    for c in unsmoothed:
+        problems.append(f"cell {c[0] - x0},{c[1] - y0}: can't smooth a 90° corner")
 
     for c in sorted(exits, key=lambda c: (c[1], c[0])):
         if not exits[c]:

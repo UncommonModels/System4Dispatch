@@ -459,7 +459,7 @@ pub fn EditorView() -> Element {
                     MenuButton { id: "file", label: "File", menu,
                         MenuItem { label: "New layout", onclick: move |_| new_layout() }
                         MenuItem { label: "Open…", keys: "Ctrl+O", onclick: move |_| import() }
-                        MenuItem { label: "Export…", onclick: move |_| export() }
+                        MenuItem { label: "Save to disk…", onclick: move |_| export() }
                         MenuSep {}
                         MenuItem { label: "Load demo layout", onclick: move |_| { set_draft(draft, bus, Layout::demo()); reset_editor(); } }
                         for (title, _) in s4d_core::layout::EXAMPLES.iter() {

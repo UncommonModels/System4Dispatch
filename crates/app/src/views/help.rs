@@ -32,7 +32,7 @@ pub fn HelpView() -> Element {
                     li { "When you're ready, draw your own layout in the " b { "Editor" } " and connect to real hardware in " b { "Settings" } "." }
                 }
                 p { class: "muted",
-                    "Settings and your layout are saved automatically (in the browser, or in your settings folder for the desktop app). Use " b { "Export" } " in the editor to keep a copy or move it to another computer."
+                    "Settings and your layout are saved automatically (in the browser, or in your settings folder for the desktop app). Use " b { "File → Save to disk" } " in the editor to keep a copy or move it to another computer."
                 }
             }
 
@@ -149,7 +149,7 @@ pub fn HelpView() -> Element {
                     "The event appears under " b { "Recent bus events" } ", and the " b { "⤓" } " button next to any event field fills in the newest one."
                 }
                 p { class: "muted small",
-                    "Use File → Export and File → Open to move a layout between computers."
+                    "Use File → Save to disk and File → Open to move a layout between computers."
                 }
             }
 

@@ -505,10 +505,10 @@ impl Element {
 pub enum Shape {
     /// W to E.
     Straight,
-    /// W to NE (a 45° curve).
+    /// W to NE (a 45° curve). `"tight_curve"`, a 90° bend in some
+    /// development builds, is read as this.
+    #[serde(alias = "tight_curve")]
     Curve,
-    /// W to N (a 90° curve).
-    TightCurve,
     /// W to a dead end.
     Bumper,
     /// W–E crossing N–S.
@@ -542,10 +542,9 @@ pub enum Shape {
 
 impl Shape {
     /// Every shape, in palette order.
-    pub const ALL: [Shape; 14] = [
+    pub const ALL: [Shape; 13] = [
         Shape::Straight,
         Shape::Curve,
-        Shape::TightCurve,
         Shape::Bumper,
         Shape::Crossing,
         Shape::CrossingDiag,
@@ -661,7 +660,6 @@ impl Shape {
         match self {
             Shape::Straight => "Straight",
             Shape::Curve => "Curve",
-            Shape::TightCurve => "Tight curve",
             Shape::Bumper => "Bumper",
             Shape::Crossing => "Crossing",
             Shape::CrossingDiag => "Diamond",
@@ -699,7 +697,6 @@ impl Shape {
         match self {
             Shape::Straight => Legs::fixed(seg(W, 2)),
             Shape::Curve => Legs::fixed(seg(W, 1)),
-            Shape::TightCurve => Legs::fixed(seg(W, 0)),
             Shape::Bumper => Legs::fixed(seg(W, CENTER)),
             Shape::Crossing => Legs::fixed(vec![(W, 2), (0, 4)]),
             Shape::CrossingDiag => Legs::fixed(vec![(W, 2), (7, 3)]),
@@ -867,9 +864,9 @@ impl fmt::Display for RouteError {
 
 impl std::error::Error for RouteError {}
 
-/// The plain track tile (straight, curve or tight curve) with track ends
-/// in directions `a` and `b`. Anything sharper than 90° (or `a == b`) gets
-/// a straight tile through `a`.
+/// The plain track tile (straight or 45° curve) with track ends in
+/// directions `a` and `b`. Bends sharper than 45° can't be drawn; they
+/// (and `a == b`) get a straight tile through `a`.
 ///
 /// ```
 /// use s4d_core::layout::shape_for_exits;
@@ -877,7 +874,7 @@ impl std::error::Error for RouteError {}
 ///
 /// assert_eq!(shape_for_exits(6, 2), (Shape::Straight, 0));
 /// assert_eq!(shape_for_exits(1, 6), (Shape::Curve, 0)); // W to NE
-/// assert_eq!(shape_for_exits(4, 6), (Shape::TightCurve, 6)); // S to W
+/// assert_eq!(shape_for_exits(4, 6), (Shape::Straight, 2)); // a 90° bend: not drawable
 /// ```
 pub fn shape_for_exits(a: u8, b: u8) -> (Shape, u8) {
     let (a, b) = (a % 8, b % 8);
@@ -885,8 +882,6 @@ pub fn shape_for_exits(a: u8, b: u8) -> (Shape, u8) {
     match (b + 8 - a) % 8 {
         3 => (Shape::Curve, rot_from(a)),
         5 => (Shape::Curve, rot_from(b)),
-        2 => (Shape::TightCurve, rot_from(a)),
-        6 => (Shape::TightCurve, rot_from(b)),
         _ => (Shape::Straight, rot_from(a) % 4),
     }
 }
@@ -1675,8 +1670,7 @@ impl Layout {
     /// An endpoint that already has track is joined at one of its
     /// [free ends](Layout::free_ends); an empty endpoint gets a new tile.
     /// The route takes empty cells only and prefers straight runs: 45°
-    /// bends cost a little, 90° bends ([`Shape::TightCurve`]) a lot, and
-    /// nothing sharper is used.
+    /// bends cost a little, and nothing sharper than 45° is used.
     ///
     /// ```
     /// use s4d_core::{Element, Layout, Shape};
@@ -1767,7 +1761,7 @@ impl Layout {
                 break;
             }
             let mut done = false;
-            for turn in [0i8, -1, 1, -2, 2] {
+            for turn in [0i8, -1, 1] {
                 let h2 = (h as i8 + turn).rem_euclid(8) as u8;
                 // The start cell (when empty) may leave in its own heading only.
                 if from_empty && cell == from && turn != 0 {
@@ -1778,11 +1772,7 @@ impl Layout {
                     continue;
                 }
                 let nc = (n.0 as u16, n.1 as u16);
-                let penalty = match turn.abs() {
-                    0 => 0,
-                    1 => 4,
-                    _ => 25,
-                };
+                let penalty = if turn == 0 { 0 } else { 4 };
                 if !to_empty && nc == to {
                     if arrive.contains(&h2) {
                         goal = Some(((cell, h), h2));
@@ -2981,7 +2971,7 @@ mod tests {
     #[test]
     fn exits_to_shapes_round_trip() {
         for a in 0..8u8 {
-            for turn in [2u8, 3, 4, 5, 6] {
+            for turn in [3u8, 4, 5] {
                 let b = (a + turn) % 8;
                 let (shape, rot) = shape_for_exits(a, b);
                 let legs = shape.legs().rotated(rot);

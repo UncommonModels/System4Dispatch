@@ -51,4 +51,4 @@ The panel then asks every device on the bus for the current state of each block 
 
 ## Moving a layout between computers
 
-The layout lives in the browser (web app) or your settings folder (desktop app), so it doesn't follow you automatically. In the editor, press **Export…** to save it as a `.json` file, and **Import…** on the other computer to load it. Import loads the file as a draft; press **Apply & save** to keep it.
+The layout lives in the browser (web app) or your settings folder (desktop app), so it doesn't follow you automatically. In the editor, press **Save to disk…** to save it as a `.json` file, and **Import…** on the other computer to load it. Import loads the file as a draft; press **Apply & save** to keep it.

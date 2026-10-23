@@ -165,9 +165,10 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; 
 /* Panel view */
 .panel-view { display: grid; grid-template-columns: 1fr 300px; gap: 12px; align-items: start; }
 .panel-board { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; min-width: 0; }
-.panel-scroll { overflow: auto; max-height: calc(100vh - 170px); min-height: 160px; cursor: grab; overscroll-behavior: contain; }
+.panel-scroll { overflow: auto; height: calc(100vh - 170px); min-height: 160px; cursor: grab; overscroll-behavior: contain; }
 .panel-scroll.panning, .ed-canvas.panning { cursor: grabbing; user-select: none; }
-.panel-scroll .track-svg { margin: 0 auto; }
+/* Fit (no zoom set): the whole height of the layout, scrolling sideways. */
+.panel-scroll .track-svg { margin: 0 auto; height: 100%; width: auto; max-width: none; }
 .zoom-bar { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; align-items: center; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 2px; box-shadow: 0 1px 3px rgb(0 0 0 / 8%); }
 .zoom-bar .icon-btn { min-width: 30px; }
 .panel-side section { padding: 10px 12px; }
