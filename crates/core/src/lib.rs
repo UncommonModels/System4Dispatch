@@ -3,6 +3,8 @@
 //! * [`layout`]: the panel file format, track geometry and editor operations.
 //! * [`dispatcher`]: block, turnout and turntable state and throttles over
 //!   a `rolcb::Node`.
+//! * [`cdi`] and [`config`]: reading other nodes' configuration
+//!   descriptions (CDI) and reading and writing their configuration memory.
 //! * [`sim`]: a simulated layout and command station for demos and tests.
 //! * [`testing`]: a virtual bench that wires a dispatcher to a simulator.
 //!
@@ -35,6 +37,8 @@
 #![warn(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
+pub mod cdi;
+pub mod config;
 pub mod dispatcher;
 pub mod layout;
 pub mod sim;

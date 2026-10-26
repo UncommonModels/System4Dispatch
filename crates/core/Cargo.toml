@@ -19,6 +19,7 @@ rolcb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 schemars = { version = "1.2", optional = true }
+roxmltree = "0.21.2"
 
 [package.metadata.docs.rs]
 all-features = true

@@ -29,15 +29,23 @@
 //!   answer queries, and ask their controller for a heartbeat every
 //!   [`HEARTBEAT_MS`].
 //!
-//! Not modelled: CAN bandwidth, lost frames, consists, Memory
-//! Configuration and Controller Changed notifications.
+//! * **Configuration.** The layout node serves a CDI ([`SIM_CDI`]) and
+//!   answers Memory Configuration reads and writes. Its settings are live:
+//!   random occupancy, how often a block changes, and the turnout feedback
+//!   delay. Writing the node name or description (space `0xFB`) changes
+//!   what it reports in SNIP. Writes are acknowledged with "reply pending"
+//!   followed by a write reply, like most real nodes.
+//!
+//! Not modelled: CAN bandwidth, lost frames, consists and Controller
+//! Changed notifications.
 
 use std::collections::BTreeMap;
 
-use rolcb::message::Message;
+use rolcb::message::{protocol, Message};
 use rolcb::traction::{search, Command, Reply, Speed};
 use rolcb::{CanFrame, EventId, EventState, Node, NodeId, NodeInfo};
 
+use crate::config::DATAGRAM_MEMORY_CONFIG;
 use crate::dispatcher::Position;
 use crate::layout::Layout;
 
@@ -47,6 +55,54 @@ const FEEDBACK_DELAY_MS: u64 = 400;
 /// How long a simulated turntable takes to move from one track to the next.
 pub const TURNTABLE_STEP_MS: u64 = 500;
 const OCCUPANCY_PERIOD_MS: u64 = 3_000;
+
+/// The simulated layout node's CDI. Space `0xFD` holds the simulation
+/// settings (see [the module docs](self)) and four spare inputs that do
+/// nothing but remember their settings.
+pub const SIM_CDI: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<cdi xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://openlcb.org/schema/cdi/1/1/cdi.xsd">
+<identification>
+<manufacturer>System4Dispatch</manufacturer>
+<model>Simulated layout</model>
+<hardwareVersion>Simulator</hardwareVersion>
+<softwareVersion>1</softwareVersion>
+</identification>
+<acdi/>
+<segment space="253">
+<name>Layout controller</name>
+<group>
+<name>Simulation</name>
+<description>How the simulated layout behaves. Changes take effect at once.</description>
+<int size="1">
+<name>Random occupancy</name>
+<description>Flip a random block's occupancy every so often.</description>
+<min>0</min><max>1</max><default>1</default>
+<map><relation><property>0</property><value>Off</value></relation><relation><property>1</property><value>On</value></relation></map>
+</int>
+<int size="2">
+<name>Occupancy change period (ms)</name>
+<min>500</min><max>60000</max><default>3000</default>
+</int>
+<int size="2">
+<name>Turnout feedback delay (ms)</name>
+<description>How long a turnout takes to report its new position.</description>
+<min>0</min><max>10000</max><default>400</default>
+</int>
+</group>
+<group replication="4">
+<name>Spare inputs</name>
+<repname>Input</repname>
+<string size="16"><name>Description</name></string>
+<eventid><name>Active event</name></eventid>
+<eventid><name>Inactive event</name></eventid>
+</group>
+</segment>
+</cdi>
+"#;
+/// Size of the simulated node's configuration space (`0xFD`).
+const SIM_CONFIG_SIZE: usize = 5 + 4 * (16 + 8 + 8);
+/// Size of the ACDI user space (`0xFB`): version, name, description.
+const SIM_USER_SIZE: usize = 128;
 
 /// A simulated train node created by the command station.
 pub struct SimTrain {
@@ -87,6 +143,10 @@ pub struct Simulator {
     now: u64,
     /// Randomly flip block occupancy every few seconds.
     pub random_occupancy: bool,
+    /// Configuration space `0xFD` (see [`SIM_CDI`]).
+    config: Vec<u8>,
+    /// ACDI user space `0xFB`.
+    user: Vec<u8>,
 }
 
 fn info(model: &str) -> NodeInfo {
@@ -128,7 +188,21 @@ impl Simulator {
             next_occupancy: now + OCCUPANCY_PERIOD_MS,
             now,
             random_occupancy: true,
+            config: sim_default_config(),
+            user: {
+                let mut u = vec![0; SIM_USER_SIZE];
+                u[0] = 1;
+                u
+            },
         };
+        s.node.set_protocols(
+            protocol::EVENT_EXCHANGE
+                | protocol::SNIP
+                | protocol::DATAGRAM
+                | protocol::MEMORY_CONFIGURATION
+                | protocol::CDI
+                | protocol::ACDI,
+        );
         s.register_events();
         s.node.start(now);
         s
@@ -279,7 +353,7 @@ impl Simulator {
             self.report_turntable(&id, dir);
         }
         if self.random_occupancy && now >= self.next_occupancy && !self.layout.blocks.is_empty() {
-            self.next_occupancy = now + OCCUPANCY_PERIOD_MS;
+            self.next_occupancy = now + self.config_u16(1);
             let i = (self.rand() % self.layout.blocks.len() as u64) as usize;
             let id = self.layout.blocks[i].id.clone();
             let occ = !self.occupied[&id];
@@ -369,8 +443,119 @@ impl Simulator {
                 self.turntable_command(e, now);
             }
             Message::IdentifyProducer(e) if search::is_search_event(e) => self.train_search(e, now),
+            Message::Datagram { dest, data } if Some(dest) == self.node.alias() => {
+                self.memory_config(rx.src_alias, &data)
+            }
             _ => {}
         }
+    }
+
+    fn config_u16(&self, at: usize) -> u64 {
+        u16::from_be_bytes([self.config[at], self.config[at + 1]]) as u64
+    }
+
+    /// Answer a Memory Configuration datagram from `src`.
+    fn memory_config(&mut self, src: u16, d: &[u8]) {
+        let reject = |s: &mut Self| {
+            s.node.send(Message::DatagramRejected {
+                dest: src,
+                code: 0x1043,
+            });
+        };
+        if d.len() < 2 || d[0] != DATAGRAM_MEMORY_CONFIG {
+            return reject(self);
+        }
+        if matches!(d[1], 0xA8 | 0xA9) {
+            // Update complete / reset: nothing to do.
+            self.node.send(Message::DatagramReceivedOk {
+                dest: src,
+                flags: 0,
+            });
+            return;
+        }
+        if d.len() < 6 {
+            return reject(self);
+        }
+        let cmd = d[1] & 0xFC;
+        let bits = d[1] & 0x03;
+        let addr = u32::from_be_bytes([d[2], d[3], d[4], d[5]]) as usize;
+        let (space, rest) = match bits {
+            0 if d.len() >= 7 => (d[6], &d[7..]),
+            0 => return reject(self),
+            b => (0xFC | b, &d[6..]),
+        };
+        // The reply echoes the request's command flags, address and space.
+        let mut head = vec![DATAGRAM_MEMORY_CONFIG, 0];
+        head.extend_from_slice(&d[2..6]);
+        if bits == 0 {
+            head.push(space);
+        }
+        let reply = |s: &mut Self, cmd: u8, extra: &[u8]| {
+            let mut r = head.clone();
+            r[1] = cmd | bits;
+            r.extend_from_slice(extra);
+            s.node.send(Message::Datagram { dest: src, data: r });
+        };
+        if cmd == 0x40 {
+            self.node.send(Message::DatagramReceivedOk {
+                dest: src,
+                flags: 0,
+            });
+            let count = rest.first().copied().unwrap_or(0).min(64) as usize;
+            self.config[0] = self.random_occupancy as u8;
+            let mut cdi = SIM_CDI.as_bytes().to_vec();
+            cdi.push(0);
+            let mem: Option<&[u8]> = match space {
+                0xFF => Some(&cdi),
+                0xFD => Some(&self.config),
+                0xFB => Some(&self.user),
+                _ => None,
+            };
+            match mem {
+                Some(m) if addr < m.len() => {
+                    let data = m[addr..(addr + count).min(m.len())].to_vec();
+                    reply(self, 0x50, &data);
+                }
+                Some(_) => reply(self, 0x58, &[0x10, 0x82]),
+                None => reply(self, 0x58, &[0x10, 0x81]),
+            }
+        } else if cmd == 0x00 {
+            // "Reply pending, within 2 s", then the write reply.
+            self.node.send(Message::DatagramReceivedOk {
+                dest: src,
+                flags: 0x81,
+            });
+            self.config[0] = self.random_occupancy as u8;
+            let mem = match space {
+                0xFD => Some(&mut self.config),
+                0xFB => Some(&mut self.user),
+                _ => None,
+            };
+            match mem {
+                Some(m) if addr + rest.len() <= m.len() => {
+                    m[addr..addr + rest.len()].copy_from_slice(rest);
+                    reply(self, 0x10, &[]);
+                    self.apply_config();
+                }
+                Some(_) => reply(self, 0x18, &[0x10, 0x82]),
+                None => reply(self, 0x18, &[0x10, 0x83]),
+            }
+        } else {
+            reject(self);
+        }
+    }
+
+    /// Make the simulation follow its configuration memory.
+    fn apply_config(&mut self) {
+        self.random_occupancy = self.config[0] != 0;
+        let text = |b: &[u8]| {
+            let end = b.iter().position(|x| *x == 0).unwrap_or(b.len());
+            String::from_utf8_lossy(&b[..end]).into_owned()
+        };
+        let mut info = self.node.info().clone();
+        info.user_name = text(&self.user[1..64]);
+        info.user_description = text(&self.user[64..]);
+        self.node.set_info(info);
     }
 
     fn turnout_command(&mut self, e: EventId, now: u64) {
@@ -395,7 +580,7 @@ impl Simulator {
         }
         if t.has_feedback() {
             self.pending_feedback
-                .push((now + FEEDBACK_DELAY_MS, t.id, pos));
+                .push((now + self.config_u16(3), t.id, pos));
         }
     }
 
@@ -452,6 +637,14 @@ impl Simulator {
         }
         out
     }
+}
+
+fn sim_default_config() -> Vec<u8> {
+    let mut c = vec![0; SIM_CONFIG_SIZE];
+    c[0] = 1;
+    c[1..3].copy_from_slice(&(OCCUPANCY_PERIOD_MS as u16).to_be_bytes());
+    c[3..5].copy_from_slice(&(FEEDBACK_DELAY_MS as u16).to_be_bytes());
+    c
 }
 
 fn valid(b: bool) -> EventState {

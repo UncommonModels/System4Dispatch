@@ -104,12 +104,13 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 
-use rolcb::message::Message;
+use rolcb::message::{protocol, Message};
 use rolcb::mti::Mti;
 use rolcb::traction::{search, Command, Reply, Speed};
 use rolcb::{CanFrame, EventId, EventState, Node, NodeId, NodeInfo};
 use serde::{Deserialize, Serialize};
 
+use crate::config::{plan_reads, NodeConfig};
 use crate::layout::Layout;
 
 /// Full throttle maps to 126 "mph", which DCC command stations treat as
@@ -331,6 +332,8 @@ pub struct Dispatcher {
     pub recent_events: VecDeque<EventId>,
     /// Log every message to [`traffic`](Dispatcher::traffic).
     pub monitor: bool,
+    /// Other nodes on the bus and their configuration; see [`crate::config`].
+    pub config: NodeConfig,
     /// Incremented whenever anything visible changes; UIs re-render on change.
     /// See [the module docs](self#change-detection-revision).
     pub revision: u64,
@@ -375,9 +378,12 @@ impl Dispatcher {
             pending_deadlines: BTreeMap::new(),
             traffic: VecDeque::new(),
             monitor: true,
+            config: NodeConfig::default(),
             recent_events: VecDeque::new(),
             revision: 0,
         };
+        d.node
+            .set_protocols(protocol::EVENT_EXCHANGE | protocol::SNIP | protocol::DATAGRAM);
         d.set_layout(layout);
         d
     }
@@ -545,6 +551,7 @@ impl Dispatcher {
         self.node.reset();
         self.link_up = false;
         self.requery = None;
+        self.config.link_down();
         for b in self.blocks.values_mut() {
             *b = Occupancy::Unknown;
         }
@@ -584,9 +591,15 @@ impl Dispatcher {
         } else {
             (None, None)
         };
+        let config = if self.link_up {
+            self.config.next_deadline()
+        } else {
+            None
+        };
         throttles
             .chain(pending)
             .chain(requery)
+            .chain(config)
             .chain(self.node.next_deadline())
             .min()
     }
@@ -605,7 +618,14 @@ impl Dispatcher {
         if self.node.is_permitted() && !self.synced {
             self.synced = true;
             self.query_state();
+            self.config.discover();
         }
+        let busy = self.config.busy_total();
+        self.config.poll(now);
+        if self.config.busy_total() != busy {
+            self.revision += 1;
+        }
+        self.flush_config();
         if let Some((at, left)) = self.requery {
             if now >= at {
                 self.requery = None;
@@ -766,6 +786,15 @@ impl Dispatcher {
             self.log(format!("← {:03X} {:?}", rx.src_alias, rx.msg));
         }
         let me = self.node.alias();
+        let config_changed = match me {
+            Some(me) => self.config.receive(rx.src_alias, &rx.msg, me, now),
+            None => false,
+        };
+        self.flush_config();
+        config_changed | self.receive_event(rx, me, now)
+    }
+
+    fn receive_event(&mut self, rx: rolcb::Received, me: Option<u16>, now: u64) -> bool {
         match rx.msg {
             Message::Pcer(e) => {
                 self.remember_event(e);
@@ -817,6 +846,77 @@ impl Dispatcher {
             }
             _ => false,
         }
+    }
+
+    fn flush_config(&mut self) {
+        for m in self.config.take_outgoing() {
+            self.send(m);
+        }
+    }
+
+    /// Ask every node on the bus to identify itself, filling
+    /// [`config.nodes`](NodeConfig::nodes) with their names. Done
+    /// automatically after logging in.
+    pub fn discover_nodes(&mut self) {
+        self.revision += 1;
+        self.config.discover();
+        self.flush_config();
+    }
+
+    /// Read `node`'s CDI (replacing any copy already read).
+    pub fn load_cdi(&mut self, node: NodeId) {
+        self.revision += 1;
+        self.config.enqueue_cdi(node, self.now);
+        self.flush_config();
+    }
+
+    /// Read `len` bytes of `node`'s memory space `space` from `addr` into
+    /// [`config.data`](NodeConfig::data).
+    pub fn read_config(&mut self, node: NodeId, space: u8, addr: u32, len: u32) {
+        self.revision += 1;
+        self.config.enqueue_read(node, space, addr, len, self.now);
+        self.flush_config();
+    }
+
+    /// Read every field described by `node`'s CDI (which must be loaded).
+    pub fn read_all_config(&mut self, node: NodeId) {
+        let fields: Vec<(u8, u32, u32)> = match self.config.data.get(&node) {
+            Some(crate::config::ConfigData {
+                cdi: Some(Ok(cdi)), ..
+            }) => cdi
+                .fields()
+                .into_iter()
+                .map(|f| (f.space, f.address, f.size))
+                .collect(),
+            _ => return,
+        };
+        for (space, addr, len) in plan_reads(fields) {
+            self.config.enqueue_read(node, space, addr, len, self.now);
+        }
+        self.revision += 1;
+        self.flush_config();
+    }
+
+    /// Write `data` to `node`'s memory space `space` at `addr`.
+    pub fn write_config(&mut self, node: NodeId, space: u8, addr: u32, data: &[u8]) {
+        self.revision += 1;
+        self.config.enqueue_write(node, space, addr, data, self.now);
+        self.flush_config();
+    }
+
+    /// Tell `node` a set of writes is finished (some nodes apply changes
+    /// only then).
+    pub fn config_update_complete(&mut self, node: NodeId) {
+        self.revision += 1;
+        self.config.enqueue_update_complete(node, self.now);
+        self.flush_config();
+    }
+
+    /// Restart `node`, as configuration tools do after changes that need it.
+    pub fn restart_node(&mut self, node: NodeId) {
+        self.revision += 1;
+        self.config.enqueue_reset(node, self.now);
+        self.flush_config();
     }
 
     fn remember_event(&mut self, e: EventId) {

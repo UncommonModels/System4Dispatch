@@ -721,3 +721,139 @@ fn switches_with_two_turnouts_step_through_routes() {
     b.run(1_000);
     assert_eq!(b.d.next_route(Shape::SingleSlip, "T1", "T3"), Some((n, n)));
 }
+
+// ---- Node configuration ---------------------------------------------------
+
+const SIM_NODE: NodeId = NodeId::new(0x0501_0101_FF00);
+
+fn sim_cdi(b: &Bench) -> crate::cdi::Cdi {
+    match &b.d.config.data[&SIM_NODE].cdi {
+        Some(Ok(c)) => c.clone(),
+        other => panic!("CDI not loaded: {other:?}"),
+    }
+}
+
+fn field<'a>(cdi: &'a crate::cdi::Cdi, name: &str) -> &'a crate::cdi::Field {
+    cdi.fields().into_iter().find(|f| f.name == name).unwrap()
+}
+
+#[test]
+fn discovers_nodes_with_their_names() {
+    let mut b = Bench::new();
+    b.run(500);
+    let n = &b.d.config.nodes[&SIM_NODE];
+    assert_eq!(n.info.as_ref().unwrap().model, "Simulated layout");
+    assert!(n.has_cdi());
+    assert_eq!(
+        n.protocols.unwrap() & rolcb::message::protocol::MEMORY_CONFIGURATION,
+        0x10_0000
+    );
+}
+
+#[test]
+fn reads_cdi_and_values_and_writes_them() {
+    let mut b = Bench::new();
+    b.run(500);
+    b.d.load_cdi(SIM_NODE);
+    assert_eq!(b.d.config.busy(SIM_NODE), 1);
+    b.run(2_000);
+    assert_eq!(b.d.config.busy(SIM_NODE), 0);
+    let cdi = sim_cdi(&b);
+    assert_eq!(cdi.identification.model, "Simulated layout");
+    // <acdi/> brings the user name and description.
+    assert_eq!(cdi.segments[0].space, crate::cdi::SPACE_ACDI_USER);
+
+    b.d.read_all_config(SIM_NODE);
+    b.run(2_000);
+    let data = &b.d.config.data[&SIM_NODE];
+    assert_eq!(data.error, None);
+    let delay = field(&cdi, "Turnout feedback delay (ms)");
+    let bytes = data.bytes(delay.space, delay.address, delay.size).unwrap();
+    assert_eq!(delay.decode(&bytes).unwrap(), "400");
+    // The bench turned random occupancy off.
+    let random = field(&cdi, "Random occupancy");
+    let bytes = data
+        .bytes(random.space, random.address, random.size)
+        .unwrap();
+    assert_eq!(random.decode(&bytes).unwrap(), "0");
+
+    // Rename the node: SNIP follows.
+    let name = field(&cdi, "Name");
+    b.d.write_config(
+        SIM_NODE,
+        name.space,
+        name.address,
+        &name.encode("Hilltown IO").unwrap(),
+    );
+    b.d.config_update_complete(SIM_NODE);
+    b.run(1_000);
+    assert_eq!(b.d.config.data[&SIM_NODE].error, None);
+    assert_eq!(b.d.config.busy_total(), 0);
+    b.d.config.nodes.get_mut(&SIM_NODE).unwrap().info = None;
+    b.d.discover_nodes();
+    b.run(500);
+    assert_eq!(b.d.config.nodes[&SIM_NODE].label(SIM_NODE), "Hilltown IO");
+
+    // A live setting: a slower turnout.
+    b.d.write_config(
+        SIM_NODE,
+        delay.space,
+        delay.address,
+        &delay.encode("2000").unwrap(),
+    );
+    b.run(500);
+    assert!(b.d.throw("T1", Position::Reverse));
+    b.run(1_000);
+    assert_eq!(b.d.turnouts["T1"].pending, Some(Position::Reverse));
+    b.run(1_500);
+    assert_eq!(b.d.turnouts["T1"], status(Position::Reverse));
+}
+
+#[test]
+fn node_without_memory_config_reports_an_error() {
+    let mut b = Bench::new();
+    let i = b.add_node(other_panel(4));
+    b.run(500);
+    let id = b.nodes[i].node_id();
+    assert!(b.d.config.nodes.contains_key(&id));
+    b.d.load_cdi(id);
+    b.run(500);
+    let err = b.d.config.data[&id].error.clone().unwrap();
+    assert!(err.contains("1043"), "{err}");
+    assert_eq!(b.d.config.busy_total(), 0);
+}
+
+#[test]
+fn silent_node_times_out() {
+    let mut b = Bench::new();
+    b.run(500);
+    // A node we know of that has left the bus without saying so.
+    let gone = NodeId::new(0x0501_0101_7700);
+    b.d.config.saw_node(gone, 0x777);
+    b.d.load_cdi(gone);
+    b.run(crate::config::ACK_TIMEOUT_MS + 100);
+    assert!(b.d.config.data[&gone]
+        .error
+        .as_ref()
+        .unwrap()
+        .contains("acknowledge"));
+    assert_eq!(b.d.config.busy_total(), 0);
+}
+
+#[test]
+fn incoming_datagrams_are_acknowledged() {
+    let mut b = Bench::new();
+    let i = b.add_node(other_panel(5));
+    b.run(500);
+    let me = b.d.alias().unwrap();
+    b.nodes[i].send(Message::Datagram {
+        dest: me,
+        data: vec![0x30, 1, 2],
+    });
+    b.settle();
+    assert!(b.inbox[i].iter().any(|r| r.msg
+        == Message::DatagramReceivedOk {
+            dest: b.nodes[i].alias().unwrap(),
+            flags: 0
+        }));
+}
