@@ -229,6 +229,8 @@ pub fn HelpView() -> Element {
                     dd { "Two browsers (or a browser and a device) share a Node ID. Give this panel a different one in Settings." }
                     dt { "USB serial isn't offered or fails in the browser." }
                     dd { "Use Chrome or Edge on a desktop computer (phones and Firefox don't support it), or use the desktop app." }
+                    dt { "My board is listed as “USB JTAG/serial debug unit”." }
+                    dd { "That's the USB port built into ESP32 chips (C3, C6, S3…), used by FemtoLCC and other ESP32-based LCC nodes. The name is fixed in the chip and firmware can't change it, so pick that entry. On Linux the port also appears as /dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_…, a name that doesn't change when other adapters are plugged in." }
                     dt { "The desktop app can't connect to JMRI." }
                     dd { "In JMRI, start the LCC GridConnect hub on your LCC connection (port 12021 by default), and make sure your firewall allows it." }
                     dt { "Two programs need the same USB adapter." }

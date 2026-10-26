@@ -26,6 +26,12 @@ The app tried to reconnect automatically but the browser hasn't been given permi
 - **On Linux, you don't have permission.** Add yourself to the `dialout` group (`uucp` on Arch), then log out and back in.
 - **The adapter was unplugged** and came back under a different name. Press **Refresh ports** in Settings and pick it again.
 
+### My board is listed as "USB JTAG/serial debug unit"
+
+That's the USB port built into ESP32 chips (ESP32-C3, C6, S3 and others), which FemtoLCC and other ESP32-based LCC nodes use for GridConnect. Its name, and its USB IDs (`303a:1001`), are fixed in the chip, so firmware can't make it say anything else. Pick that entry in the browser's port picker or the desktop app's **Port** list.
+
+On Linux the port also appears as `/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_…`, ending in the board's MAC address. Unlike `/dev/ttyACM0`, that name stays the same when other adapters are plugged in, so it's the better one to save in Settings or pass to `rolcb-hub --serial`.
+
 ### The desktop app can't connect to JMRI
 
 - In JMRI, make sure the LCC GridConnect hub is running on your LCC connection. It listens on port 12021 by default.
