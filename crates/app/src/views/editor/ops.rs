@@ -180,12 +180,14 @@ pub const KEY_LISTENER: &str = r#"
     const h = (e) => {
         const t = e.target;
         if (t && t.closest && t.closest("input, select, textarea, [contenteditable]")) return;
+        // Enter on a focused button presses the button, not the grid.
+        if (e.key === "Enter" && t && t.closest && t.closest("button, a")) return;
         const ed = document.querySelector(".ed");
         if (!ed || !ed.closest(".win.top")) return;
         const ctrl = e.ctrlKey || e.metaKey;
         const k = e.key;
         const plain = ["r", "R", "Delete", "Backspace", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
-                       "v", "V", "s", "S", "e", "E", "t", "T", "a", "A", "1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "=", "-", "0"];
+                       "Enter", "v", "V", "s", "S", "e", "E", "t", "T", "a", "A", "1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "=", "-", "0"];
         const combo = ["z", "Z", "y", "Y", "a", "A", "c", "C", "x", "X", "v", "V", "d", "D", "s", "S", "o", "O", "=", "+", "-", "0"];
         if (ctrl ? !combo.includes(k) : (e.altKey || !plain.includes(k))) return;
         e.preventDefault();

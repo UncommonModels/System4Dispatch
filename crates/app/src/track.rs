@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 use dioxus::prelude::*;
 use s4d_core::layout::{dir_offset, Seg, CENTER};
 use s4d_core::{
-    Element as Tile, Layout, Occupancy, Position, Shape, TurnoutStatus, Turntable, TurntableStatus,
+    Element as Tile, Layout, Occupancy, Over, Position, Shape, TurnoutStatus, Turntable,
+    TurntableStatus,
 };
 
 fn pt(x: u16, y: u16, dir: u8) -> (f32, f32) {
@@ -70,6 +71,54 @@ pub fn leg_path(shape: Shape, x: u16, y: u16, (a, b): Seg) -> String {
     let (kx, ky) = (cx + sx / len * 0.2, cy + sy / len * 0.2);
     format!("M{ax:.3} {ay:.3} L{kx:.3} {ky:.3} L{bx:.3} {by:.3}")
 }
+
+/// Path data for the track passing under a bridge: segment (a, b) of tile
+/// (x, y), straight through the centre, with a gap in the middle.
+fn under_path(x: u16, y: u16, (a, b): Seg) -> String {
+    let (cx, cy) = pt(x, y, CENTER);
+    let stub = |d: u8| {
+        let (ex, ey) = pt(x, y, d);
+        let (vx, vy) = (ex - cx, ey - cy);
+        let len = (vx * vx + vy * vy).sqrt().max(1e-6);
+        let k = BRIDGE_GAP / len;
+        format!("M{ex:.3} {ey:.3} L{:.3} {:.3}", cx + vx * k, cy + vy * k)
+    };
+    format!("{} {}", stub(a), stub(b))
+}
+
+/// Path data for a bridge's two side walls along segment (a, b) of tile
+/// (x, y), flared at the ends like a map's bridge symbol.
+fn bridge_sides(x: u16, y: u16, (a, b): Seg) -> String {
+    let (ax, ay) = pt(x, y, a);
+    let (bx, by) = pt(x, y, b);
+    let (cx, cy) = pt(x, y, CENTER);
+    let len = ((bx - ax).powi(2) + (by - ay).powi(2)).sqrt().max(1e-6);
+    let (ux, uy) = ((bx - ax) / len, (by - ay) / len);
+    let (nx, ny) = (-uy, ux);
+    let (off, half, flare) = (0.2, BRIDGE_GAP, 0.09);
+    let side = |s: f32| {
+        let p = |along: f32, out: f32| {
+            (
+                cx + ux * along + nx * s * out,
+                cy + uy * along + ny * s * out,
+            )
+        };
+        let (p0, p1, p2, p3) = (
+            p(-half - flare, off + flare),
+            p(-half, off),
+            p(half, off),
+            p(half + flare, off + flare),
+        );
+        format!(
+            "M{:.3} {:.3} L{:.3} {:.3} L{:.3} {:.3} L{:.3} {:.3}",
+            p0.0, p0.1, p1.0, p1.1, p2.0, p2.1, p3.0, p3.1
+        )
+    };
+    format!("{} {}", side(1.0), side(-1.0))
+}
+
+/// Half the length of a bridge, and of the gap in the track under it.
+const BRIDGE_GAP: f32 = 0.3;
 
 /// A circle as path data.
 pub fn circle_path(cx: f32, cy: f32, r: f32) -> String {
@@ -185,6 +234,7 @@ pub fn tile_strokes(
         block2,
         turnout,
         turnout2,
+        over,
         ..
     } = el
     else {
@@ -217,6 +267,24 @@ pub fn tile_strokes(
         } else {
             d
         }
+    };
+    // With one block in focus, each track of a crossing fades unless it's
+    // in that block.
+    let block2_or_1 = block2.as_ref().or(block.as_ref());
+    let fade = |seg: Seg| match focus {
+        Some(f) => {
+            let mine = if second(seg) {
+                block2_or_1
+            } else {
+                block.as_ref()
+            };
+            if mine.map(String::as_str) == Some(f) {
+                ""
+            } else {
+                " faded"
+            }
+        }
+        None => "",
     };
     let faded = match focus {
         Some(f) if block.as_deref() != Some(f) && block2.as_deref() != Some(f) => " faded",
@@ -273,7 +341,7 @@ pub fn tile_strokes(
             out.push(restyle(
                 Drawn {
                     d: leg_path(*shape, *x, *y, segment),
-                    class: format!("{class}{pending}{faded}"),
+                    class: format!("{class}{pending}{}", fade(segment)),
                     style: if class.contains("leg-off") {
                         String::new()
                     } else {
@@ -285,21 +353,41 @@ pub fn tile_strokes(
         }
         return out;
     }
+    // A bridged crossing: which of its tracks is on top.
+    let on_top = |seg: Seg| match over.filter(|_| shape.can_bridge()) {
+        Some(Over::First) => Some(!second(seg)),
+        Some(Over::Second) => Some(second(seg)),
+        None => None,
+    };
     let mut push = |segs: &[Seg], class: String| {
+        // The track under a bridge draws first, broken where it passes under.
+        let mut segs = segs.to_vec();
+        segs.sort_by_key(|s| on_top(*s) == Some(true));
         for s in segs {
             let style = if class.contains("leg-off") {
                 String::new()
             } else {
                 style.clone()
             };
+            let d = match on_top(s) {
+                Some(false) => under_path(*x, *y, s),
+                _ => seg_path(*x, *y, s),
+            };
             out.push(restyle(
                 Drawn {
-                    d: seg_path(*x, *y, *s),
-                    class: format!("{class}{faded}"),
+                    d,
+                    class: format!("{class}{}", fade(s)),
                     style,
                 },
-                *s,
+                s,
             ));
+            if on_top(s) == Some(true) {
+                out.push(Drawn {
+                    d: bridge_sides(*x, *y, s),
+                    class: format!("bridge-side{}", fade(s)),
+                    style: String::new(),
+                });
+            }
         }
     };
     // Unselected leg first so the selected route draws on top.

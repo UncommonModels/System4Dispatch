@@ -173,6 +173,8 @@ pub fn HelpView() -> Element {
                     li { "Use the " b { "Select" } " tool (" kbd { "V" } "): click a tile, drag a box around several, or Shift/Ctrl-click to add and remove tiles. On a touch screen, choose View → " i { "Tap adds to selection" } "." }
                     li { "With tiles selected, the Properties tab changes their block or rotation. Arrow keys move them, " kbd { "Delete" } " removes them, and " kbd { "Ctrl" } "+" kbd { "C" } "/" kbd { "X" } "/" kbd { "V" } "/" kbd { "D" } " copy, cut, paste and duplicate." }
                     li { "To make room, select a tile and use the " b { "Grid" } " menu to insert a row above or below it, or a column to its left or right. Everything beyond moves along and track that crossed the gap is joined up." }
+                    li { kbd { "Enter" } " does what a left click would at the cell under the pointer, with the tool you've chosen." }
+                    li { "A " b { "Crossing" } " or " b { "Diamond" } " can be at grade or a bridge, with one track passing over the other. Choose under " i { "Crossing type" } ", or click the selected crossing again to step through the options." }
                     li { "Everything can be undone with " kbd { "Ctrl" } "+" kbd { "Z" } " and redone with " kbd { "Ctrl" } "+" kbd { "Y" } ". Zoom with " kbd { "+" } "/" kbd { "−" } " or Ctrl+scroll." }
                 }
                 h4 { "Seeing your blocks" }

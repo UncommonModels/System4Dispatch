@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use dioxus::prelude::*;
 use rolcb::EventId;
 use s4d_core::layout::{Block, Feedback, Turnout, Turntable, TurntableTrack, DIR_NAMES};
-use s4d_core::{Element as Tile, Layout, Shape};
+use s4d_core::{Element as Tile, Layout, Over, Shape};
 
 use super::ops::*;
 use super::{EditorState, PanelTab, Tool};
@@ -125,6 +125,7 @@ fn LayoutProperties(
                 dt { kbd { "R" } } dd { "Rotate (Shift+R back)" }
                 dt { kbd { "←↑→↓" } } dd { "Move selection" }
                 dt { kbd { "Del" } } dd { "Delete selection" }
+                dt { kbd { "Enter" } } dd { "Click the cell under the pointer" }
                 dt { kbd { "Ctrl" } kbd { "Z" } " " kbd { "Y" } } dd { "Undo, redo" }
                 dt { kbd { "Ctrl" } kbd { "X" } kbd { "C" } kbd { "V" } } dd { "Cut, copy, paste" }
                 dt { kbd { "Ctrl" } kbd { "D" } } dd { "Duplicate" }
@@ -178,6 +179,7 @@ fn TileProperties(el: Tile, layout: Layout, colors: BTreeMap<String, String>) ->
             turnout2,
             turntable,
             portal,
+            over,
             ..
         } => {
             let block_label: &'static str = if shape.has_two_tracks() {
@@ -231,6 +233,24 @@ fn TileProperties(el: Tile, layout: Layout, colors: BTreeMap<String, String>) ->
                             on_pick: move |v: Option<String>| update(Box::new(move |t| if let Tile::Track { block2, .. } = t { *block2 = v })),
                         }
                         p { class: "hint", "The two tracks through a crossing can be in different blocks. Leave the other track on “No block” to use the same block for both." }
+                    }
+                    if shape.can_bridge() {
+                        label { class: "field", span { "Crossing type" }
+                            select {
+                                onchange: move |e| {
+                                    let v = match e.value().as_str() {
+                                        "first" => Some(Over::First),
+                                        "second" => Some(Over::Second),
+                                        _ => None,
+                                    };
+                                    update(Box::new(move |t| if let Tile::Track { over, .. } = t { *over = v }));
+                                },
+                                option { value: "", selected: over.is_none(), "At grade (the tracks cross)" }
+                                option { value: "first", selected: over == Some(Over::First), "Bridge: W–E track over" }
+                                option { value: "second", selected: over == Some(Over::Second), "Bridge: other track over" }
+                            }
+                        }
+                        p { class: "hint", "On a bridge one track passes over the other without meeting it. Click the selected crossing again to step through these." }
                     }
                     if shape.is_turnout() {
                         label { class: "field", span { if shape.has_two_turnouts() { "Left-hand turnout" } else { "Turnout" } }

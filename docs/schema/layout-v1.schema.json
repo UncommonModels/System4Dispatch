@@ -119,6 +119,17 @@
                 "null"
               ]
             },
+            "over": {
+              "description": "For a [`Shape::Crossing`] or [`Shape::CrossingDiag`]: the track\nthat passes over the other on a bridge. `None` is a crossing at\ngrade. The tracks connect the same way either way; only the\ndrawing differs.",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Over"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "portal": {
               "description": "The name of a [`Shape::Portal`]'s link: the track continues at\nthe other portal with the same name.",
               "type": [
@@ -279,6 +290,21 @@
       "required": [
         "cols",
         "rows"
+      ]
+    },
+    "Over": {
+      "description": "Which track of a crossing tile is on the bridge; see\n[`Element::Track`]'s `over`.",
+      "oneOf": [
+        {
+          "description": "The track from the W edge (`block`).",
+          "type": "string",
+          "const": "first"
+        },
+        {
+          "description": "The other track (`block2`).",
+          "type": "string",
+          "const": "second"
+        }
       ]
     },
     "Shape": {

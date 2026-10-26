@@ -168,7 +168,16 @@ A **3-way**, **Single slip** or **Double slip** piece is worked by two turnouts,
 
 ## Crossings with two blocks
 
-A **Crossing**, **Diamond** or slip carries two separate tracks, which are often in different detection blocks. Select the tile and set **Block (W–E track)** and **Block (other track)** in the inspector; each track is then coloured and detected by its own block. Leave the other track on *No block* to use one block for both.
+A **Crossing**, **Diamond** or slip carries two separate tracks, which are often in different detection blocks. Select the tile and set **Block (W–E track)** and **Block (other track)** in the inspector; each track is then coloured and detected by its own block. Leave the other track on *No block* to use one block for both. When one block is highlighted (its swatch in the Blocks table), only the track of a crossing that's in that block stays bright.
+
+### Crossings and bridges
+
+A **Crossing** or **Diamond** can be one of two things:
+
+- **At grade**: the tracks cross on the level, and a train on one blocks the other. This is the default, drawn as two tracks meeting.
+- **A bridge**: one track passes over the other without meeting it, like a flyover or an overpass. The track underneath is drawn broken where it passes under, and the track on top has the bridge's side walls drawn along it.
+
+To choose, select the tile and set **Crossing type** in the inspector: *At grade*, *Bridge: W–E track over* or *Bridge: other track over*. Or click the selected tile again: each click steps on to the next of the three (each one is a separate step on the undo list). The tracks connect to their neighbours the same way in all three; only the drawing changes. Changing the tile to another shape drops the setting.
 
 ## Portals
 
@@ -209,6 +218,8 @@ The canvas scrolls like any page. **Ctrl+wheel** (or a trackpad pinch) zooms abo
 ### Moving tiles
 
 Whenever something is selected, a **Move** box appears with **↑ ← → ↓** buttons that shift the selection one cell at a time. You can also use the **arrow keys**, and **Delete** or **Backspace** to delete the selection. Keyboard shortcuts work when the grid has keyboard focus and the Editor window is in front: click on the grid first.
+
+**Enter** does what a left click would at the cell under the pointer, with whichever tool is chosen: it places the track piece, selects the tile (Shift+Enter adds to the selection), erases, or picks a point for Auto track. That's handy when it's easier to press a key than to click, for example while moving the pointer with a trackpad. If a button has keyboard focus, Enter presses that button instead.
 
 A move is refused, with the message "Can't move there: tiles would leave the grid or overlap other track", if any tile would go off the grid or land on a tile that isn't part of the selection.
 

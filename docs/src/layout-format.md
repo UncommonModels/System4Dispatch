@@ -158,6 +158,7 @@ Each element occupies one grid cell, at column `x` and row `y`, counted from 0 a
 | `turnout2` | string | for `three_way`, `single_slip` and `double_slip` tiles | ID of the switch's **right-hand** turnout. (`turnout` is the left-hand one.) |
 | `turntable` | string | for `turntable` tiles | ID of the turntable this tile shows. |
 | `portal` | string | for `portal` tiles | The portal's name. The track carries on at the other portal with the same name. |
+| `over` | `"first"` or `"second"` | no | For `crossing` and `diamond` tiles: the two tracks pass one over the other on a bridge instead of crossing at grade. `"first"` puts the track from the W edge (before rotation, the `block` track) on top, `"second"` the other one. If absent, the tracks cross at grade. The tracks connect the same way either way; only the drawing differs. Older versions of the app ignore it and draw a plain crossing. |
 
 ### Labels
 

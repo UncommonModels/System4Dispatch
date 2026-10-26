@@ -49,6 +49,6 @@ pub use dispatcher::{
     TurntableStatus,
 };
 pub use layout::{
-    Block, Element, Feedback, Grid, Issue, Layout, MoveError, RouteError, Shape, Turnout,
+    Block, Element, Feedback, Grid, Issue, Layout, MoveError, Over, RouteError, Shape, Turnout,
     Turntable, TurntableTrack, FORMAT_VERSION,
 };

@@ -182,6 +182,7 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; 
 .occ-unknown { stroke: var(--track-unknown); }
 .occ-none { stroke: var(--track-none); }
 .leg-off { stroke: var(--track-off); stroke-width: .14; }
+.bridge-side { fill: none; stroke: var(--text); stroke-width: .05; stroke-linecap: round; stroke-linejoin: round; opacity: .75; }
 .leg-unknown { stroke-width: .14; }
 .pending { animation: blink .6s steps(2, start) infinite; }
 @keyframes blink { to { visibility: hidden; } }

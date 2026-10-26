@@ -136,7 +136,7 @@ pub fn EditorView() -> Element {
 
     // ---- Actions (shared by menus, toolbar and shortcuts) ---------------
 
-    let on_cell = move |e: CellEvent| {
+    let mut on_cell = move |e: CellEvent| {
         let cell = (e.x, e.y);
         match tool() {
             Tool::Select => {
@@ -144,6 +144,15 @@ pub fn EditorView() -> Element {
                 let occupied = |c: &Cell| l.element_at(c.0, c.1).is_some();
                 if !e.drag {
                     let extend = e.extend || multi();
+                    // Clicking a crossing that's already the only thing
+                    // selected steps it through at grade / bridged.
+                    if !extend && *selection.peek() == BTreeSet::from([cell]) {
+                        let mut next = current(draft, bus);
+                        if next.cycle_bridge(e.x, e.y).is_some() {
+                            set_draft(draft, bus, next);
+                            return;
+                        }
+                    }
                     let base = if extend {
                         selection.read().clone()
                     } else {
@@ -422,6 +431,17 @@ pub fn EditorView() -> Element {
                         tool.set(Tool::Select);
                         menu.set(None);
                     }
+                    // Enter clicks the cell under the pointer.
+                    (false, "enter") => {
+                        if let Some((x, y)) = hover() {
+                            on_cell(CellEvent {
+                                x,
+                                y,
+                                drag: false,
+                                extend: k.shift,
+                            });
+                        }
+                    }
                     (false, "arrowleft") => nudge(-1, 0),
                     (false, "arrowright") => nudge(1, 0),
                     (false, "arrowup") => nudge(0, -1),
@@ -458,6 +478,7 @@ pub fn EditorView() -> Element {
             block2: None,
             turntable: None,
             portal: None,
+            over: None,
         }],
         (Tool::Roundhouse, Some((x, y))) => vec![Tile::Track {
             x,
@@ -470,6 +491,7 @@ pub fn EditorView() -> Element {
             block2: None,
             turntable: None,
             portal: None,
+            over: None,
         }],
         (Tool::Label, Some((x, y))) => vec![Tile::Label {
             x,

@@ -467,6 +467,12 @@ pub enum Element {
         /// the other portal with the same name.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         portal: Option<String>,
+        /// For a [`Shape::Crossing`] or [`Shape::CrossingDiag`]: the track
+        /// that passes over the other on a bridge. `None` is a crossing at
+        /// grade. The tracks connect the same way either way; only the
+        /// drawing differs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        over: Option<Over>,
     },
     /// A text label.
     Label {
@@ -496,6 +502,18 @@ impl Element {
             }
         }
     }
+}
+
+/// Which track of a crossing tile is on the bridge; see
+/// [`Element::Track`]'s `over`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum Over {
+    /// The track from the W edge (`block`).
+    First,
+    /// The other track (`block2`).
+    Second,
 }
 
 /// Tile shapes. Each can be rotated in 45° steps (`rot` 0..=7, clockwise).
@@ -594,6 +612,12 @@ impl Shape {
     /// ```
     pub fn on_second_track(self, (a, b): Seg) -> bool {
         self.has_two_tracks() && a != 6 && b != 6
+    }
+
+    /// True for plain crossings, whose tracks can also pass one over the
+    /// other on a bridge instead of crossing at grade.
+    pub fn can_bridge(self) -> bool {
+        matches!(self, Shape::Crossing | Shape::CrossingDiag)
     }
 
     /// True for switches worked by two turnouts (`turnout` and
@@ -1125,7 +1149,7 @@ impl Layout {
     /// l.put(Element::Track {
     ///     x: 0, y: 0, shape: Shape::Straight, rot: 0,
     ///     block: Some("B9".into()), block2: None, turnout: None, turnout2: None,
-    ///     turntable: None, portal: None,
+    ///     turntable: None, portal: None, over: None,
     /// });
     /// let issues = l.validate();
     /// assert_eq!(issues.len(), 1);
@@ -1674,6 +1698,7 @@ impl Layout {
                 turnout2: None,
                 block2: None,
                 portal: None,
+                over: None,
             });
         }
         Ok(id)
@@ -1870,6 +1895,7 @@ impl Layout {
                 turnout2: None,
                 turntable: None,
                 portal: None,
+                over: None,
             });
             match prev.get(&(cell, h)) {
                 Some(&(c, hp)) => {
@@ -2274,9 +2300,12 @@ impl Layout {
         let turnout2 = self.turnout2_for(x, y, shape);
         let turntable = self.turntable_for(x, y, shape);
         let portal = self.portal_for(x, y, shape);
-        let block2 = match self.element_at(x, y).map(|i| &self.elements[i]) {
-            Some(Element::Track { block2, .. }) if shape.has_two_tracks() => block2.clone(),
-            _ => None,
+        let (block2, over) = match self.element_at(x, y).map(|i| &self.elements[i]) {
+            Some(Element::Track { block2, over, .. }) => (
+                block2.clone().filter(|_| shape.has_two_tracks()),
+                over.filter(|_| shape.can_bridge()),
+            ),
+            _ => (None, None),
         };
         // Turntables keep their geometry in their tracks, not the tile.
         let rot = if shape.is_turntable() { 0 } else { rot % 8 };
@@ -2291,6 +2320,7 @@ impl Layout {
             turnout2,
             turntable,
             portal,
+            over,
         });
         turnout
     }
@@ -2318,10 +2348,14 @@ impl Layout {
             turntable,
             portal,
             rot,
+            over,
             ..
         } = &mut self.elements[i]
         {
             *s = shape;
+            if !shape.can_bridge() {
+                *over = None;
+            }
             *turnout = id.clone();
             *turnout2 = id2;
             if !shape.has_two_tracks() {
@@ -2334,6 +2368,38 @@ impl Layout {
             }
         }
         id
+    }
+
+    /// Step the crossing at (x, y) through its options: at grade, the first
+    /// track over the second on a bridge, then the second over the first.
+    /// Returns the new setting, or `None` (changing nothing) if the cell
+    /// holds no crossing that can be bridged.
+    ///
+    /// ```
+    /// use s4d_core::layout::Over;
+    /// use s4d_core::{Element, Layout, Shape};
+    ///
+    /// let mut l = Layout::empty("t");
+    /// l.place_track(2, 2, Shape::Crossing, 0, None);
+    /// assert_eq!(l.cycle_bridge(2, 2), Some(Some(Over::First)));
+    /// assert_eq!(l.cycle_bridge(2, 2), Some(Some(Over::Second)));
+    /// assert_eq!(l.cycle_bridge(2, 2), Some(None));
+    /// l.place_track(3, 2, Shape::Straight, 0, None);
+    /// assert_eq!(l.cycle_bridge(3, 2), None);
+    /// ```
+    pub fn cycle_bridge(&mut self, x: u16, y: u16) -> Option<Option<Over>> {
+        let i = self.element_at(x, y)?;
+        match &mut self.elements[i] {
+            Element::Track { shape, over, .. } if shape.can_bridge() => {
+                *over = match *over {
+                    None => Some(Over::First),
+                    Some(Over::First) => Some(Over::Second),
+                    Some(Over::Second) => None,
+                };
+                Some(*over)
+            }
+            _ => None,
+        }
     }
 
     /// Paste copied tiles, shifted diagonally by the first offset `k` in
@@ -2512,6 +2578,7 @@ mod tests {
             turnout2: None,
             block2: None,
             portal: None,
+            over: None,
         }
     }
 
@@ -2579,6 +2646,7 @@ mod tests {
             turnout2: None,
             block2: None,
             portal: None,
+            over: None,
         });
         assert_eq!(l.validate().len(), 1);
         assert!(l.validate()[0].0.contains("rotation 9"));
@@ -2598,6 +2666,7 @@ mod tests {
             turnout2: None,
             block2: None,
             portal: None,
+            over: None,
         });
         l.put(track(1, 1, Shape::TurnoutLeft));
         assert_eq!(l.elements.len(), 1);
@@ -2865,6 +2934,7 @@ mod tests {
             turnout2: None,
             block2: None,
             portal: None,
+            over: None,
         });
         l.put(Element::Label {
             x: 1,
@@ -2970,6 +3040,7 @@ mod tests {
                 turnout2: None,
                 block2: None,
                 portal: None,
+                over: None,
             },
             Element::Label {
                 x: 1,
@@ -2987,6 +3058,7 @@ mod tests {
                 turnout2: None,
                 block2: None,
                 portal: None,
+                over: None,
             },
         ];
         let placed = l.paste(&clip[..2]).unwrap();
@@ -3360,6 +3432,7 @@ mod tests {
             block2: None,
             turntable: None,
             portal: Some("A".into()),
+            over: None,
         });
         let issues = l.validate();
         assert!(issues
@@ -3387,6 +3460,7 @@ mod tests {
                 block2: None,
                 turntable: None,
                 portal: Some(l.next_portal_name()),
+                over: None,
             });
         }
         assert_eq!(l.next_portal_name(), "AB");
