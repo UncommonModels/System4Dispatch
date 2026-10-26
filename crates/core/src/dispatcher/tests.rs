@@ -839,19 +839,51 @@ fn silent_node_times_out() {
 }
 
 #[test]
-fn incoming_datagrams_are_acknowledged() {
+fn datagrams_other_than_replies_are_rejected() {
     let mut b = Bench::new();
     let i = b.add_node(other_panel(5));
     b.run(500);
     let me = b.d.alias().unwrap();
-    b.nodes[i].send(Message::Datagram {
-        dest: me,
-        data: vec![0x30, 1, 2],
-    });
-    b.settle();
-    assert!(b.inbox[i].iter().any(|r| r.msg
-        == Message::DatagramReceivedOk {
-            dest: b.nodes[i].alias().unwrap(),
-            flags: 0
-        }));
+    let them = b.nodes[i].alias().unwrap();
+    for (data, code) in [
+        (vec![0x30, 1, 2], 0x1042),
+        (vec![0x20, 0x43, 0, 0, 0, 0, 64], 0x1041),
+    ] {
+        b.inbox[i].clear();
+        b.nodes[i].send(Message::Datagram { dest: me, data });
+        b.settle();
+        assert_eq!(
+            b.inbox[i]
+                .iter()
+                .filter(|r| r.msg.dest() == Some(them))
+                .map(|r| r.msg.clone())
+                .collect::<Vec<_>>(),
+            vec![Message::DatagramRejected { dest: them, code }]
+        );
+    }
+}
+
+#[test]
+fn nodes_are_discovered_once_per_login() {
+    let mut b = Bench::new();
+    let i = b.add_node(other_panel(6));
+    b.run(500);
+    let verifies = |b: &Bench| {
+        b.inbox[i]
+            .iter()
+            .filter(|r| {
+                matches!(
+                    r.msg,
+                    Message::VerifyNodeIdGlobal { .. } | Message::SnipRequest { .. }
+                )
+            })
+            .count()
+    };
+    let after_login = verifies(&b);
+    assert!(after_login > 0);
+    // Applying a layout queries state again, but doesn't rediscover.
+    let layout = b.d.layout().clone();
+    b.d.set_layout(layout);
+    b.run(500);
+    assert_eq!(verifies(&b), after_login);
 }

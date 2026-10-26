@@ -320,6 +320,8 @@ pub struct Dispatcher {
     next_throttle: u32,
     link_up: bool,
     synced: bool,
+    /// Asked the bus which nodes are on it since logging in.
+    discovered: bool,
     /// When to ask again about blocks and turnouts that are still unknown,
     /// and how many more times to try.
     requery: Option<(u64, u8)>,
@@ -373,6 +375,7 @@ impl Dispatcher {
             next_throttle: 1,
             link_up: false,
             synced: false,
+            discovered: false,
             requery: None,
             now: 0,
             pending_deadlines: BTreeMap::new(),
@@ -541,6 +544,7 @@ impl Dispatcher {
         self.node.start(now);
         self.link_up = true;
         self.synced = false;
+        self.discovered = false;
         self.fail_running_throttles(FailReason::ConnectionLost);
         self.log("link up".into());
     }
@@ -618,6 +622,10 @@ impl Dispatcher {
         if self.node.is_permitted() && !self.synced {
             self.synced = true;
             self.query_state();
+        }
+        // Once per login, not whenever the layout changes.
+        if self.node.is_permitted() && !self.discovered {
+            self.discovered = true;
             self.config.discover();
         }
         let busy = self.config.busy_total();

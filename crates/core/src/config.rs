@@ -25,8 +25,10 @@
 //! The target answers our datagram with Datagram Received OK (if its flags
 //! have bit 7 set, a reply datagram follows within 2^(flags & 0x0F)
 //! seconds) or Datagram Rejected (codes with bit `0x2000` set mean "try
-//! again"). Every datagram addressed to us is acknowledged with Datagram
-//! Received OK.
+//! again"). Read and write replies addressed to us are acknowledged with
+//! Datagram Received OK; any other datagram is rejected (`0x1042`, or
+//! `0x1041` for Memory Configuration commands), since this node has no
+//! configuration memory of its own.
 //!
 //! The CDI (space `0xFF`) is read 64 bytes at a time until a chunk contains
 //! a NUL, comes back short, or the read fails past the start.
@@ -51,6 +53,10 @@ pub const ACK_TIMEOUT_MS: u64 = 3_000;
 /// How long to wait for a reply when the target doesn't say.
 pub const REPLY_TIMEOUT_MS: u64 = 3_000;
 const MAX_RESENDS: u8 = 3;
+/// Datagram Rejected: a Memory Configuration command we don't implement.
+const ERROR_SUBCOMMAND_UNKNOWN: u16 = 0x1041;
+/// Datagram Rejected: a datagram type (first byte) we don't implement.
+const ERROR_DATAGRAM_TYPE_UNKNOWN: u16 = 0x1042;
 
 const CMD_WRITE: u8 = 0x00;
 const CMD_WRITE_REPLY: u8 = 0x10;
@@ -519,14 +525,23 @@ impl NodeConfig {
                 true
             }
             Message::Datagram { dest, data } if *dest == me => {
+                // We are a configuration tool, not a configurable node:
+                // only replies to our requests are accepted.
+                let Some(r) = decode_reply(data) else {
+                    let code = if data.first() == Some(&DATAGRAM_MEMORY_CONFIG) {
+                        ERROR_SUBCOMMAND_UNKNOWN
+                    } else {
+                        ERROR_DATAGRAM_TYPE_UNKNOWN
+                    };
+                    self.outbox
+                        .push(Message::DatagramRejected { dest: src, code });
+                    return false;
+                };
                 self.outbox.push(Message::DatagramReceivedOk {
                     dest: src,
                     flags: 0,
                 });
-                match decode_reply(data) {
-                    Some(r) => self.reply(src, r, now),
-                    None => false,
-                }
+                self.reply(src, r, now)
             }
             _ => false,
         }

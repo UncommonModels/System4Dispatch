@@ -77,7 +77,7 @@ The CDI parser. `Cdi::parse` turns a node's CDI XML into `Segment`s, `Group`s an
 
 ### `config.rs`
 
-`NodeConfig`, owned by the `Dispatcher` as `config`: the list of nodes on the bus (from Verify Node ID and Initialization Complete, with their SNIP and protocol flags) and a **Memory Configuration** client over datagrams. Requests (read CDI, read, write, update complete, reset) wait in a queue and go out one at a time. Each waits up to 3 s for Datagram Received OK, then for the reply as long as the node's reply-pending flag says (or 3 s). Datagrams rejected with a "try again" code are resent up to 3 times. Reads are split into chunks of at most 64 bytes, and `plan_reads` merges neighbouring fields into as few requests as possible. Every datagram addressed to the panel is acknowledged.
+`NodeConfig`, owned by the `Dispatcher` as `config`: the list of nodes on the bus (from Verify Node ID and Initialization Complete, with their SNIP and protocol flags) and a **Memory Configuration** client over datagrams. Requests (read CDI, read, write, update complete, reset) wait in a queue and go out one at a time. Each waits up to 3 s for Datagram Received OK, then for the reply as long as the node's reply-pending flag says (or 3 s). Datagrams rejected with a "try again" code are resent up to 3 times. Reads are split into chunks of at most 64 bytes, and `plan_reads` merges neighbouring fields into as few requests as possible. Replies to its requests are acknowledged; any other datagram addressed to the panel is rejected (`0x1042`, or `0x1041` for Memory Configuration commands). Nodes are discovered once per login, not when the layout changes.
 
 ### `sim.rs`
 

@@ -76,7 +76,7 @@ The [Nodes and Configure windows](configuring-nodes.md) use three more parts of 
 
 **Finding nodes.** When it logs in, the panel sends a global **Verify Node ID**. Every node answers **Verified Node ID**, and the panel asks each for its **Simple Node Information** (manufacturer, model, versions, user name) and its **Protocol Support**. Nodes that log in later announce themselves with Initialization Complete, and the panel asks them the same. A node that says it supports the *CDI* protocol can be configured. **⟳ Refresh** sends Verify Node ID again.
 
-**Datagrams.** Configuration requests travel as *datagrams*: addressed messages of up to 72 bytes, split over several CAN frames. The receiver answers every datagram with **Datagram Received OK** or **Datagram Rejected**. The panel acknowledges every datagram addressed to it. If a node rejects one of the panel's datagrams with a "try again" code (it was busy), the panel sends it again, up to 3 times.
+**Datagrams.** Configuration requests travel as *datagrams*: addressed messages of up to 72 bytes, split over several CAN frames. The receiver answers every datagram with **Datagram Received OK** or **Datagram Rejected**. The panel acknowledges the read and write replies it is waiting for and rejects any other datagram sent to it: it has no configuration memory of its own, so a tool that tries to configure the panel gets a clear "not supported" instead of waiting. If a node rejects one of the panel's datagrams with a "try again" code (it was busy), the panel sends it again, up to 3 times.
 
 **Memory Configuration.** A node's settings live in numbered *memory spaces*. The panel uses three:
 
