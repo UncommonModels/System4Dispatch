@@ -119,6 +119,52 @@ fn producer_identified_on_command_is_not_an_action() {
 }
 
 #[test]
+fn turnout_with_silent_feedback_learns_position_from_its_driver() {
+    let mut b = Bench::new();
+    deaf_t1(&mut b);
+    b.run(500);
+    // Nobody answers for the feedback events, but the simulated driver
+    // reports its output as Consumer Identified Valid.
+    assert_eq!(b.d.turnouts["T1"], status(Position::Normal));
+}
+
+#[test]
+fn unknown_state_is_queried_again() {
+    let mut b = Bench::new();
+    let mut layout = b.d.layout().clone();
+    let b1 = layout.blocks.iter_mut().find(|x| x.id == "B1").unwrap();
+    b1.occupied_event = Some(ev(10));
+    b1.clear_event = Some(ev(11));
+    b.d.set_layout(layout);
+    // A detector that doesn't know its state yet when we first ask.
+    let mut det = other_panel(3);
+    det.add_producer(ev(10), EventState::Unknown);
+    det.add_producer(ev(11), EventState::Unknown);
+    let i = b.add_node(det);
+    b.run(500);
+    assert_eq!(b.d.link_state(), LinkState::Online);
+    assert_eq!(b.d.blocks["B1"], Occupancy::Unknown);
+
+    // It finds out, but sensors only report changes...
+    b.nodes[i].set_producer_state(ev(10), EventState::Valid);
+    b.nodes[i].set_producer_state(ev(11), EventState::Invalid);
+    b.run(500);
+    assert_eq!(b.d.blocks["B1"], Occupancy::Unknown);
+    // ...so the dispatcher asks again.
+    b.run(REQUERY_MS);
+    assert_eq!(b.d.blocks["B1"], Occupancy::Occupied);
+}
+
+#[test]
+fn requery_stops_when_everything_is_known() {
+    let mut b = Bench::new();
+    b.run(500);
+    b.run(REQUERY_MS + 100);
+    assert_eq!(b.d.requery, None);
+    assert_eq!(b.d.next_deadline(), None);
+}
+
+#[test]
 fn pcer_from_another_panel_sets_pending_until_feedback() {
     let mut b = Bench::new();
     b.run(500);

@@ -33,7 +33,7 @@
 //! | Block `clear_event` | Clear | Clear | Occupied | — | — |
 //! | Turnout feedback (`normal`/`reverse`) | position := that; clears `stalled`, and `pending` if it matches | same as PCER | — | — | — |
 //! | Turnout command, no feedback | position := that | position := that | — | — | position := that |
-//! | Turnout command, with feedback | `pending` := that (someone else threw it) | — | — | — | — |
+//! | Turnout command, with feedback | `pending` := that (someone else threw it) | position := that, if unknown | — | — | position := that, if unknown |
 //! | Turntable track `feedback_event` | position := that track; clears `stalled`, and `pending` if it matches | same as PCER | — | — | — |
 //! | Turntable `cw_event` / `ccw_event` | the bridge moves one track on from where it was going (someone else turned it) | — | — | — | — |
 //!
@@ -57,6 +57,16 @@
 //! feedback is assumed reached. Until a feedback event or
 //! [`Dispatcher::set_turntable_position`] says where the bridge is, its
 //! position is unknown and only single steps can be sent.
+//!
+//! # Learning the state on connect
+//!
+//! Once logged in, [`Dispatcher::query_state`] asks the bus about
+//! everything in the layout: Identify Producer for block, feedback and
+//! turnout command events (detectors and sensors answer, and so do other
+//! panels or JMRI for commands they produce), and Identify Consumer for
+//! turnout command events (turnout drivers answer with their output).
+//! Nodes that are still starting up miss the first round, so anything
+//! still unknown is asked about again [`REQUERY_MS`] later, twice.
 //!
 //! The dispatcher's own consumer states for block events follow the known
 //! occupancy, so other nodes asking Identify Consumer get a truthful answer.
@@ -112,6 +122,11 @@ pub const PENDING_TIMEOUT_MS: u64 = 5_000;
 /// How long a turntable may take to reach a position with feedback.
 pub const TURNTABLE_TIMEOUT_MS: u64 = 90_000;
 const TRAFFIC_LINES: usize = 300;
+/// After the state query at login, ask again about anything still unknown
+/// this long afterwards (nodes may still be starting up)...
+pub const REQUERY_MS: u64 = 3_000;
+/// ...up to this many times.
+const REQUERY_TRIES: u8 = 2;
 
 /// What is known about a block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -304,6 +319,9 @@ pub struct Dispatcher {
     next_throttle: u32,
     link_up: bool,
     synced: bool,
+    /// When to ask again about blocks and turnouts that are still unknown,
+    /// and how many more times to try.
+    requery: Option<(u64, u8)>,
     now: u64,
     pending_deadlines: BTreeMap<String, u64>,
     /// Recent decoded traffic, newest last, for the bus monitor.
@@ -352,6 +370,7 @@ impl Dispatcher {
             next_throttle: 1,
             link_up: false,
             synced: false,
+            requery: None,
             now: 0,
             pending_deadlines: BTreeMap::new(),
             traffic: VecDeque::new(),
@@ -525,6 +544,7 @@ impl Dispatcher {
         self.revision += 1;
         self.node.reset();
         self.link_up = false;
+        self.requery = None;
         for b in self.blocks.values_mut() {
             *b = Occupancy::Unknown;
         }
@@ -556,13 +576,17 @@ impl Dispatcher {
             .iter()
             .filter(|t| matches!(t.state, ThrottleState::Searching | ThrottleState::Assigning))
             .map(|t| t.deadline);
-        let pending = if self.link_up {
-            self.pending_deadlines.values().copied().min()
+        let (pending, requery) = if self.link_up {
+            (
+                self.pending_deadlines.values().copied().min(),
+                self.requery.map(|(at, _)| at),
+            )
         } else {
-            None
+            (None, None)
         };
         throttles
             .chain(pending)
+            .chain(requery)
             .chain(self.node.next_deadline())
             .min()
     }
@@ -581,6 +605,14 @@ impl Dispatcher {
         if self.node.is_permitted() && !self.synced {
             self.synced = true;
             self.query_state();
+        }
+        if let Some((at, left)) = self.requery {
+            if now >= at {
+                self.requery = None;
+                if self.query_unknown() && left > 1 {
+                    self.requery = Some((now + REQUERY_MS, left - 1));
+                }
+            }
         }
         for t in &mut self.throttles {
             if now >= t.deadline {
@@ -620,35 +652,78 @@ impl Dispatcher {
         }
     }
 
-    /// Ask producers for the current state of every block and feedback event.
+    /// Ask the bus for the current state of every block, turnout and
+    /// turntable. Done automatically after logging in (and again, for
+    /// anything still unknown, [`REQUERY_MS`] later); call it to refresh.
     pub fn query_state(&mut self) {
-        let mut events = Vec::new();
-        for b in &self.layout.blocks {
-            events.extend(b.occupied_event);
-            events.extend(b.clear_event);
-        }
-        for t in &self.layout.turnouts {
-            if let Some(fb) = &t.feedback {
-                events.extend(fb.normal_event);
-                events.extend(fb.reverse_event);
-            }
-        }
-        for t in &self.layout.turntables {
-            events.extend(t.tracks.iter().filter_map(|tr| tr.feedback_event));
-        }
-        for e in events {
-            self.send(Message::IdentifyProducer(e));
-        }
-        // Turnout drivers report their current output as Consumer Identified.
-        let no_feedback: Vec<EventId> = self
-            .layout
+        self.query(|_| true);
+        self.requery = Some((self.now + REQUERY_MS, REQUERY_TRIES));
+    }
+
+    /// Query only what is still unknown. Returns false if nothing was.
+    fn query_unknown(&mut self) -> bool {
+        let unknown_blocks: Vec<String> = self
+            .blocks
+            .iter()
+            .filter(|(_, o)| **o == Occupancy::Unknown)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let unknown_turnouts: Vec<String> = self
             .turnouts
             .iter()
-            .filter(|t| !t.has_feedback())
-            .flat_map(|t| [t.normal_event, t.reverse_event])
-            .flatten()
+            .filter(|(_, t)| t.position == Position::Unknown && t.pending.is_none())
+            .map(|(id, _)| id.clone())
             .collect();
-        for e in no_feedback {
+        let unknown_tables: Vec<String> = self
+            .turntables
+            .iter()
+            .filter(|(_, t)| t.position.is_none() && t.pending.is_none())
+            .map(|(id, _)| id.clone())
+            .collect();
+        if unknown_blocks.is_empty() && unknown_turnouts.is_empty() && unknown_tables.is_empty() {
+            return false;
+        }
+        self.query(|id| {
+            unknown_blocks.iter().any(|b| b == id)
+                || unknown_turnouts.iter().any(|t| t == id)
+                || unknown_tables.iter().any(|t| t == id)
+        });
+        true
+    }
+
+    /// Send the state queries for the blocks, turnouts and turntables whose
+    /// id passes `want`.
+    fn query(&mut self, want: impl Fn(&str) -> bool) {
+        // Producers: detectors and feedback sensors know the state. So do
+        // other panels and JMRI for turnout commands they produce.
+        let mut producers = Vec::new();
+        // Consumers: turnout drivers report their current output.
+        let mut consumers = Vec::new();
+        for b in self.layout.blocks.iter().filter(|b| want(&b.id)) {
+            producers.extend(b.occupied_event);
+            producers.extend(b.clear_event);
+        }
+        for t in self.layout.turnouts.iter().filter(|t| want(&t.id)) {
+            if let Some(fb) = &t.feedback {
+                producers.extend(fb.normal_event);
+                producers.extend(fb.reverse_event);
+            }
+            for e in [t.normal_event, t.reverse_event].into_iter().flatten() {
+                producers.push(e);
+                consumers.push(e);
+            }
+        }
+        for t in self.layout.turntables.iter().filter(|t| want(&t.id)) {
+            producers.extend(t.tracks.iter().filter_map(|tr| tr.feedback_event));
+        }
+        producers.sort_unstable();
+        producers.dedup();
+        consumers.sort_unstable();
+        consumers.dedup();
+        for e in producers {
+            self.send(Message::IdentifyProducer(e));
+        }
+        for e in consumers {
             self.send(Message::IdentifyConsumer(e));
         }
     }
@@ -809,6 +884,16 @@ impl Dispatcher {
                         // Someone else (another panel, a fascia button)
                         // threw it: wait for feedback.
                         (Report::Pcer, true) => changed |= self.set_pending(id, p),
+                        // The driver's output (or another panel's last
+                        // command) is the best guess until feedback says.
+                        (Report::ProducerValid | Report::ConsumerValid, true) => {
+                            if let Some(t) = self.turnouts.get_mut(id) {
+                                if t.position == Position::Unknown && t.pending.is_none() {
+                                    t.position = p;
+                                    changed = true;
+                                }
+                            }
+                        }
                         // Without feedback, the last command is our best
                         // knowledge of the position.
                         (Report::Pcer | Report::ProducerValid | Report::ConsumerValid, false) => {
