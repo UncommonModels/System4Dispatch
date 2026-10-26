@@ -790,6 +790,65 @@ pub fn dir_step(dir: u8) -> (i32, i32) {
     ((x * 2.0) as i32, (y * 2.0) as i32)
 }
 
+/// What [`Layout::insert_row`] and [`Layout::insert_column`] did.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Inserted {
+    /// Joining tiles placed in the new row or column.
+    pub joined: usize,
+    /// Tiles just before the new row or column whose track across it
+    /// couldn't be joined (both sides are switches, or it would need a 90°
+    /// bend). Their cells don't move.
+    pub gaps: Vec<(u16, u16)>,
+}
+
+/// The directions track leaves tile `el` in, each with the block of the
+/// track that leaves that way.
+fn track_exits(el: &Element, layout: &Layout) -> Vec<(u8, Option<String>)> {
+    match el {
+        Element::Track {
+            shape: Shape::Turntable,
+            turntable,
+            block,
+            ..
+        } => turntable
+            .as_deref()
+            .and_then(|t| layout.turntable(t))
+            .map(|t| {
+                t.tracks
+                    .iter()
+                    .filter(|tr| !tr.stall)
+                    .filter_map(|tr| tr.dir())
+                    .map(|d| (d, block.clone()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        Element::Track {
+            shape,
+            rot,
+            block,
+            block2,
+            ..
+        } => {
+            let legs = shape.legs().rotated(*rot);
+            let mut out = Vec::new();
+            for &(a, b) in legs.fixed.iter().chain(&legs.normal).chain(&legs.reverse) {
+                let blk = if shape.on_second_track((a, b)) {
+                    block2.clone().or_else(|| block.clone())
+                } else {
+                    block.clone()
+                };
+                for d in [a, b] {
+                    if d < 8 {
+                        out.push((d, blk.clone()));
+                    }
+                }
+            }
+            out
+        }
+        Element::Label { .. } => Vec::new(),
+    }
+}
+
 /// A problem found by [`Layout::validate`], as an English sentence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Issue(pub String);
@@ -1903,6 +1962,182 @@ impl Layout {
         Ok(targets.into_iter().collect())
     }
 
+    /// Insert an empty row at `y`: the tiles in row `y` and below move down
+    /// one row and the grid grows by a row. Track that ran across the gap
+    /// is joined up with a tile in the new row, in the block of the track
+    /// above it (or below it, when the track above is a switch or a
+    /// turntable): a straight where it ran straight down, and a curve where
+    /// it ran diagonally, with the plain track tile below (or, if that's a
+    /// switch, above) turned into a curve too so the line carries on. Where
+    /// neither side can bend (two switches, or a curve that would have to
+    /// turn 90°) the track is left for you to join: see [`Inserted`].
+    /// Returns `None` (changing nothing) if `y` is past the end of the grid
+    /// or the grid can't grow.
+    ///
+    /// ```
+    /// use s4d_core::{Layout, Shape};
+    ///
+    /// let mut l = Layout::empty("t");
+    /// l.place_track(5, 3, Shape::Straight, 2, None); // N–S
+    /// l.place_track(5, 4, Shape::Straight, 2, None);
+    /// assert_eq!(l.insert_row(4).unwrap().joined, 1);
+    /// assert_eq!(l.connected_dirs(5, 4), vec![0, 4]); // joined both ways
+    /// assert!(l.element_at(5, 5).is_some());
+    /// ```
+    pub fn insert_row(&mut self, y: u16) -> Option<Inserted> {
+        self.insert_line(y, false)
+    }
+
+    /// Insert an empty column at `x`: the tiles in column `x` and to its
+    /// right move one column right. Otherwise like
+    /// [`insert_row`](Layout::insert_row).
+    pub fn insert_column(&mut self, x: u16) -> Option<Inserted> {
+        self.insert_line(x, true)
+    }
+
+    fn insert_line(&mut self, at: u16, column: bool) -> Option<Inserted> {
+        let size = if column {
+            self.grid.cols
+        } else {
+            self.grid.rows
+        };
+        if at > size || size == u16::MAX {
+            return None;
+        }
+        // The direction across the new line (S for a row, E for a column)
+        // and a cell's coordinate across it.
+        let fwd = if column { 2 } else { 4 };
+        let across = |(x, y): (u16, u16)| if column { x } else { y };
+        // Before moving anything: each connection from the line before
+        // `at` to the line at `at` becomes a joining tile in the new line.
+        // Straight across, it simply fills the gap. A diagonal can't: one
+        // of its two tiles has to bend to meet the new line square, so the
+        // tile on the far side bends if it's plain track, else the near
+        // one does. `bend` is the bent tile's final cell and new shape.
+        struct Join {
+            cell: (u16, u16),
+            exits: (u8, u8),
+            block: Option<String>,
+            bend: Option<((u16, u16), (Shape, u8))>,
+        }
+        let entry = (fwd + 4) % 8;
+        // The other end of a plain track tile, given one end.
+        let other_end = |el: Option<&Element>, end: u8| match el {
+            Some(Element::Track { shape, rot, .. })
+                if matches!(shape, Shape::Straight | Shape::Curve) =>
+            {
+                shape
+                    .legs()
+                    .rotated(*rot)
+                    .fixed
+                    .first()
+                    .map(|&(a, b)| if a == end { b } else { a })
+            }
+            _ => None,
+        };
+        // A tile can run between these ends (straight or a 45° curve).
+        let drawable = |a: u8, b: u8| (3..=5).contains(&((b + 8 - a) % 8));
+        let mut joins: Vec<Join> = Vec::new();
+        let mut gaps = Vec::new();
+        if at > 0 {
+            for el in &self.elements {
+                let (x, y) = el.pos();
+                if across((x, y)) != at - 1 {
+                    continue;
+                }
+                let linked = self.connected_dirs(x, y);
+                for (d, block) in track_exits(el, self) {
+                    let (dx, dy) = dir_step(d);
+                    if (if column { dx } else { dy }) != 1 || !linked.contains(&d) {
+                        continue;
+                    }
+                    let step = |(cx, cy): (u16, u16), (sx, sy): (i32, i32)| {
+                        ((cx as i32 + sx) as u16, (cy as i32 + sy) as u16)
+                    };
+                    let far_cell = step((x, y), (dx, dy));
+                    let back = (d + 4) % 8;
+                    // Track leaving a switch or turntable belongs to the
+                    // block beyond it, if that has one.
+                    let block = match (
+                        el,
+                        self.element_at(far_cell.0, far_cell.1)
+                            .map(|i| &self.elements[i]),
+                    ) {
+                        (
+                            Element::Track { shape, .. },
+                            Some(Element::Track { block: Some(b), .. }),
+                        ) if shape.is_turnout() || shape.is_turntable() => Some(b.clone()),
+                        _ => block,
+                    };
+                    let join = if d == fwd {
+                        Some(Join {
+                            cell: far_cell,
+                            exits: (back, fwd),
+                            block,
+                            bend: None,
+                        })
+                    } else {
+                        let far = self
+                            .element_at(far_cell.0, far_cell.1)
+                            .map(|i| &self.elements[i]);
+                        match (other_end(far, back), other_end(Some(el), d)) {
+                            // The far tile turns to come in square.
+                            (Some(o), _) if drawable(entry, o) => Some(Join {
+                                cell: far_cell,
+                                exits: (back, fwd),
+                                block,
+                                bend: Some((
+                                    step(far_cell, dir_step(fwd)),
+                                    shape_for_exits(entry, o),
+                                )),
+                            }),
+                            // The near tile turns to leave square.
+                            (_, Some(o)) if drawable(o, fwd) => Some(Join {
+                                cell: step((x, y), dir_step(fwd)),
+                                exits: (entry, d),
+                                block,
+                                bend: Some(((x, y), shape_for_exits(o, fwd))),
+                            }),
+                            _ => None,
+                        }
+                    };
+                    match join {
+                        Some(j) if !joins.iter().any(|k| k.cell == j.cell) => joins.push(j),
+                        Some(_) => {}
+                        None if !gaps.contains(&(x, y)) => gaps.push((x, y)),
+                        None => {}
+                    }
+                }
+            }
+        }
+        for el in &mut self.elements {
+            let (x, y) = el.pos();
+            if across((x, y)) >= at {
+                el.set_pos(if column { (x + 1, y) } else { (x, y + 1) });
+            }
+        }
+        if column {
+            self.grid.cols += 1;
+        } else {
+            self.grid.rows += 1;
+        }
+        for j in &joins {
+            let (shape, rot) = shape_for_exits(j.exits.0, j.exits.1);
+            self.place_track(j.cell.0, j.cell.1, shape, rot, j.block.clone());
+            if let Some(((bx, by), (new_shape, new_rot))) = j.bend {
+                if let Some(i) = self.element_at(bx, by) {
+                    if let Element::Track { shape, rot, .. } = &mut self.elements[i] {
+                        (*shape, *rot) = (new_shape, new_rot);
+                    }
+                }
+            }
+        }
+        Some(Inserted {
+            joined: joins.len(),
+            gaps,
+        })
+    }
+
     /// Remove every tile in `cells`. Block and turnout definitions are kept.
     /// Returns how many tiles were removed.
     pub fn remove_cells(&mut self, cells: &BTreeSet<(u16, u16)>) -> usize {
@@ -2431,6 +2666,124 @@ mod tests {
         assert_eq!(t.display_name(), "T1");
         t.name = "East".into();
         assert_eq!(t.display_name(), "East");
+    }
+
+    #[test]
+    fn insert_row_moves_tiles_and_joins_track() {
+        let mut l = Layout::empty("t");
+        l.blocks.push(Block {
+            id: "B".into(),
+            ..Default::default()
+        });
+        // A diagonal from (2, 1) down-right to (3, 2), a N–S line at
+        // column 6, and track in row 1 that doesn't cross.
+        l.place_track(2, 1, Shape::Straight, 1, Some("B".into()));
+        l.place_track(3, 2, Shape::Straight, 1, Some("B".into()));
+        l.place_track(6, 1, Shape::Straight, 2, None);
+        l.place_track(6, 2, Shape::Straight, 2, None);
+        l.place_track(9, 1, Shape::Straight, 0, None);
+        l.put(Element::Label {
+            x: 0,
+            y: 5,
+            text: "L".into(),
+        });
+        let rows = l.grid.rows;
+        assert_eq!(
+            l.insert_row(2),
+            Some(Inserted {
+                joined: 2,
+                gaps: vec![]
+            })
+        );
+        assert_eq!(l.grid.rows, rows + 1);
+        // Row 1 stays; row 2 and below moved down.
+        assert!(l.element_at(2, 1).is_some() && l.element_at(9, 1).is_some());
+        assert!(l.element_at(3, 3).is_some() && l.element_at(6, 3).is_some());
+        assert!(l.element_at(0, 6).is_some());
+        // The diagonal is joined by a curve from NW to S, in its block.
+        match &l.elements[l.element_at(3, 2).unwrap()] {
+            Element::Track { shape, block, .. } => {
+                assert_eq!(*shape, Shape::Curve);
+                assert_eq!(block.as_deref(), Some("B"));
+            }
+            e => panic!("{e:?}"),
+        }
+        assert_eq!(l.connected_dirs(3, 2), vec![4, 7]);
+        // ...and the diagonal below turned to come in from the N.
+        match &l.elements[l.element_at(3, 3).unwrap()] {
+            Element::Track { shape, rot, .. } => {
+                let mut ends: Vec<u8> = shape
+                    .legs()
+                    .rotated(*rot)
+                    .fixed
+                    .iter()
+                    .flat_map(|&(a, b)| [a, b])
+                    .collect();
+                ends.sort();
+                assert_eq!((*shape, ends), (Shape::Curve, vec![0, 3]));
+            }
+            e => panic!("{e:?}"),
+        }
+        assert_eq!(l.connected_dirs(6, 2), vec![0, 4]);
+        assert!(l.element_at(9, 2).is_none());
+        assert!(l.validate().is_empty(), "{:?}", l.validate());
+    }
+
+    #[test]
+    fn insert_row_bends_the_track_above_a_switch() {
+        let mut l = Layout::empty("t");
+        l.place_track(2, 1, Shape::Straight, 1, None);
+        l.place_track(3, 2, Shape::TurnoutLeft, 1, None);
+        let before = l.elements[l.element_at(3, 2).unwrap()].clone();
+        // The diagonal above bends instead of the switch below.
+        assert_eq!(l.insert_row(2).unwrap().joined, 1);
+        assert_eq!(l.connected_dirs(2, 1), vec![4]);
+        assert_eq!(l.connected_dirs(2, 2), vec![0, 3]);
+        let mut moved = before;
+        moved.set_pos((3, 3));
+        assert_eq!(l.elements[l.element_at(3, 3).unwrap()], moved);
+    }
+
+    #[test]
+    fn insert_row_joins_a_switch_in_the_block_beyond_it() {
+        let mut l = Layout::empty("t");
+        l.place_track(2, 1, Shape::TurnoutRight, 0, Some("A".into()));
+        l.place_track(3, 2, Shape::Straight, 1, Some("B".into()));
+        assert_eq!(l.insert_row(2).unwrap().joined, 1);
+        match &l.elements[l.element_at(3, 2).unwrap()] {
+            Element::Track { block, .. } => assert_eq!(block.as_deref(), Some("B")),
+            e => panic!("{e:?}"),
+        }
+    }
+
+    #[test]
+    fn insert_row_reports_what_it_cant_join() {
+        // Switch to switch on a diagonal: nothing can bend.
+        let mut l = Layout::empty("t");
+        l.place_track(2, 1, Shape::TurnoutRight, 7, None);
+        l.place_track(1, 2, Shape::TurnoutRight, 7, None);
+        assert!(l.connected_dirs(2, 1).contains(&5));
+        let done = l.insert_row(2).unwrap();
+        assert_eq!((done.joined, done.gaps), (0, vec![(2, 1)]));
+        assert!(l.element_at(1, 3).is_some());
+    }
+
+    #[test]
+    fn insert_column_joins_track_and_handles_edges() {
+        let mut l = small();
+        l.place_track(0, 1, Shape::Straight, 0, None);
+        l.place_track(1, 1, Shape::Straight, 0, None);
+        assert_eq!(l.insert_column(1).unwrap().joined, 1);
+        assert_eq!(l.grid.cols, 5);
+        assert_eq!(l.connected_dirs(1, 1), vec![2, 6]);
+        assert!(l.element_at(2, 1).is_some());
+        // At the very start or end nothing needs joining.
+        assert_eq!(l.insert_column(0), Some(Inserted::default()));
+        assert!(l.element_at(1, 1).is_some() && l.element_at(0, 1).is_none());
+        assert_eq!(l.insert_column(6), Some(Inserted::default()));
+        assert_eq!(l.grid.cols, 7);
+        assert_eq!(l.insert_column(8), None);
+        assert_eq!(l.grid.cols, 7);
     }
 
     #[test]

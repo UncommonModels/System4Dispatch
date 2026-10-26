@@ -12,6 +12,9 @@ pub type Cell = (u16, u16);
 
 const MAX_UNDO: usize = 200;
 
+/// The largest grid the editor makes, in columns or rows.
+pub const MAX_GRID: u16 = 400;
+
 /// The layout being edited: the draft if there is one, else the applied layout.
 pub fn current(draft: Signal<Option<Layout>>, bus: Bus) -> Layout {
     draft

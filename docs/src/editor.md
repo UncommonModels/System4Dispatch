@@ -24,7 +24,7 @@ If you're using the simulator, applying rebuilds it around the new layout, with 
 At the top of the inspector:
 
 - **Name**: shown in the top bar under "System4Dispatch", and used as the file name when you export.
-- **Columns** and **Rows**: the grid size, from 4 to 400 each. Shrinking the grid doesn't delete tiles that fall outside it, but they are reported as problems (see below).
+- **Columns** and **Rows**: the grid size, from 4 to 400 each. To add a row or column in the middle, use the **Grid** menu ([Inserting rows and columns](#inserting-rows-and-columns)). Shrinking the grid doesn't delete tiles that fall outside it, but they are reported as problems (see below).
 - **Apply & save** and **Revert**: see above.
 - **Save to disk…** saves the draft (or the live layout, if there's no draft) as a `.json` file: a download in the web app, a "Save as" dialog on desktop.
 - **Import…** loads a `.json` layout file into the draft. Press Apply & save to use it. Files from a newer, incompatible version of the app are refused with an explanation.
@@ -211,6 +211,17 @@ The canvas scrolls like any page. **Ctrl+wheel** (or a trackpad pinch) zooms abo
 Whenever something is selected, a **Move** box appears with **↑ ← → ↓** buttons that shift the selection one cell at a time. You can also use the **arrow keys**, and **Delete** or **Backspace** to delete the selection. Keyboard shortcuts work when the grid has keyboard focus and the Editor window is in front: click on the grid first.
 
 A move is refused, with the message "Can't move there: tiles would leave the grid or overlap other track", if any tile would go off the grid or land on a tile that isn't part of the selection.
+
+### Inserting rows and columns
+
+To make room in the middle of a drawing, select a tile and open the **Grid** menu:
+
+- **Insert row above** / **Insert row below** adds an empty row next to the selection (above its top row, or below its bottom row). Everything below the new row moves down one, and the grid gets one row taller.
+- **Insert column left** / **Insert column right** does the same with a column, moving everything to its right one column across.
+
+Track that crossed the gap is joined up for you, in the same block. A line running straight across gets a straight tile. A diagonal gets a curve, and the plain track tile on the far side (or the near side, if the far one is a switch) turns into a curve as well, making a small jog so the line carries on. Track coming off a switch or turntable goes in the block beyond it.
+
+A few crossings can't be joined in a single row or column: a diagonal from one switch straight into another, or a curve that would have to turn 90°. Those are left open, and a message names the tiles next to them so you can draw the missing pieces yourself. Insert is one step on the undo list, like any other edit.
 
 ## Learning event IDs from the bus
 

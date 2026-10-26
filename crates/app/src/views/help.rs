@@ -160,7 +160,7 @@ pub fn HelpView() -> Element {
                 h2 { "Drawing your layout" }
                 p {
                     "The editor works like a drawing program: tools on the left, the drawing in the middle, and a panel on the right with "
-                    b { "Properties" } ", " b { "Blocks" } " and " b { "Turnouts" } ". The File, Edit and View menus are at the top, and the status bar underneath shows the cell under the pointer."
+                    b { "Properties" } ", " b { "Blocks" } " and " b { "Turnouts" } ". The File, Edit, Grid and View menus are at the top, and the status bar underneath shows the cell under the pointer."
                 }
                 ol {
                     li { "In the " b { "Blocks" } " tab, press " b { "+ New block" } " for each detection section and give it a name. Each block gets its own colour." }
@@ -172,6 +172,7 @@ pub fn HelpView() -> Element {
                 ul {
                     li { "Use the " b { "Select" } " tool (" kbd { "V" } "): click a tile, drag a box around several, or Shift/Ctrl-click to add and remove tiles. On a touch screen, choose View → " i { "Tap adds to selection" } "." }
                     li { "With tiles selected, the Properties tab changes their block or rotation. Arrow keys move them, " kbd { "Delete" } " removes them, and " kbd { "Ctrl" } "+" kbd { "C" } "/" kbd { "X" } "/" kbd { "V" } "/" kbd { "D" } " copy, cut, paste and duplicate." }
+                    li { "To make room, select a tile and use the " b { "Grid" } " menu to insert a row above or below it, or a column to its left or right. Everything beyond moves along and track that crossed the gap is joined up." }
                     li { "Everything can be undone with " kbd { "Ctrl" } "+" kbd { "Z" } " and redone with " kbd { "Ctrl" } "+" kbd { "Y" } ". Zoom with " kbd { "+" } "/" kbd { "−" } " or Ctrl+scroll." }
                 }
                 h4 { "Seeing your blocks" }

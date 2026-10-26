@@ -296,6 +296,52 @@ pub fn EditorView() -> Element {
             edit_draft(draft, bus, |l| rotate_tiles(l, &sel, delta));
         }
     };
+    // Insert an empty row or column before or after the selection.
+    let mut insert_line = move |column: bool, after: bool| {
+        let sel = selection.read().clone();
+        let across = |c: &Cell| if column { c.0 } else { c.1 };
+        let at = if after {
+            sel.iter().map(across).max().map(|v| v + 1)
+        } else {
+            sel.iter().map(across).min()
+        };
+        let Some(at) = at else {
+            return;
+        };
+        let mut l = current(draft, bus);
+        let size = if column { l.grid.cols } else { l.grid.rows };
+        let done = if size >= MAX_GRID {
+            None
+        } else if column {
+            l.insert_column(at)
+        } else {
+            l.insert_row(at)
+        };
+        let what = if column { "column" } else { "row" };
+        let Some(done) = done else {
+            error.set(Some(format!(
+                "The grid can't grow past {MAX_GRID} {what}s."
+            )));
+            return;
+        };
+        set_draft(draft, bus, l);
+        if !done.gaps.is_empty() {
+            let cells: Vec<String> = done.gaps.iter().map(|(x, y)| format!("{x}, {y}")).collect();
+            error.set(Some(format!(
+                "Track crossing the new {what} couldn't be joined next to {} (switches on both sides, or a bend too sharp): draw those pieces yourself.",
+                cells.join("; ")
+            )));
+        }
+        selection.set(
+            sel.into_iter()
+                .map(|(x, y)| match (column, if column { x } else { y } >= at) {
+                    (true, true) => (x + 1, y),
+                    (false, true) => (x, y + 1),
+                    _ => (x, y),
+                })
+                .collect(),
+        );
+    };
     let mut select_all = move || {
         let l = current(draft, bus);
         selection.set(l.elements.iter().map(|e| e.pos()).collect());
@@ -486,6 +532,13 @@ pub fn EditorView() -> Element {
                         MenuSep {}
                         MenuItem { label: "Select all", keys: "Ctrl+A", onclick: move |_| select_all() }
                         MenuItem { label: "Rotate", keys: "R", onclick: move |_| rotate(false) }
+                    }
+                    MenuButton { id: "grid", label: "Grid", menu,
+                        MenuItem { label: "Insert row above", disabled: sel.is_empty(), onclick: move |_| insert_line(false, false) }
+                        MenuItem { label: "Insert row below", disabled: sel.is_empty(), onclick: move |_| insert_line(false, true) }
+                        MenuSep {}
+                        MenuItem { label: "Insert column left", disabled: sel.is_empty(), onclick: move |_| insert_line(true, false) }
+                        MenuItem { label: "Insert column right", disabled: sel.is_empty(), onclick: move |_| insert_line(true, true) }
                     }
                     MenuButton { id: "view", label: "View", menu,
                         MenuItem { label: "Zoom in", keys: "+", onclick: move |_| zoom.zoom_by(1.25) }

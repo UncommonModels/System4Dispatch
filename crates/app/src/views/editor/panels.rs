@@ -86,15 +86,15 @@ fn LayoutProperties(
             }
             div { class: "field-row",
                 label { class: "field", span { "Columns" }
-                    input { r#type: "number", min: "{min_cols.max(4)}", max: "400", value: "{layout.grid.cols}",
+                    input { r#type: "number", min: "{min_cols.max(4)}", max: "{MAX_GRID}", value: "{layout.grid.cols}",
                         onchange: move |e| if let Ok(v) = e.value().parse::<u16>() {
-                            edit_draft(draft, bus, |l| { let (c, _) = used_extent(l); l.grid.cols = v.clamp(c.max(4), 400) })
+                            edit_draft(draft, bus, |l| { let (c, _) = used_extent(l); l.grid.cols = v.clamp(c.max(4), MAX_GRID) })
                         } }
                 }
                 label { class: "field", span { "Rows" }
-                    input { r#type: "number", min: "{min_rows.max(4)}", max: "400", value: "{layout.grid.rows}",
+                    input { r#type: "number", min: "{min_rows.max(4)}", max: "{MAX_GRID}", value: "{layout.grid.rows}",
                         onchange: move |e| if let Ok(v) = e.value().parse::<u16>() {
-                            edit_draft(draft, bus, |l| { let (_, r) = used_extent(l); l.grid.rows = v.clamp(r.max(4), 400) })
+                            edit_draft(draft, bus, |l| { let (_, r) = used_extent(l); l.grid.rows = v.clamp(r.max(4), MAX_GRID) })
                         } }
                 }
             }
