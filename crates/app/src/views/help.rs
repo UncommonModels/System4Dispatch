@@ -12,7 +12,9 @@ pub fn HelpView() -> Element {
                 a { href: "#start", "Getting started" }
                 a { href: "#connect", "Connecting to your layout" }
                 a { href: "#panel", "Using the panel" }
+                a { href: "#windows", "Windows and the dock" }
                 a { href: "#throttle", "Running trains" }
+                a { href: "#nodes", "Configuring LCC nodes" }
                 a { href: "#editor", "Drawing your layout" }
                 a { href: "#events", "OpenLCB in two minutes" }
                 a { href: "#trouble", "Troubleshooting" }
@@ -26,13 +28,14 @@ pub fn HelpView() -> Element {
                     ". Use it in your browser with nothing to install, or as a desktop app that can also connect over the network."
                 }
                 ol {
-                    li { "It opens with the " b { "Simulator" } " and a demo layout, so you can try everything right away." }
+                    li { "It opens with a demo layout. To try it without hardware, open " b { "Settings" } " from the dock, choose " b { "Simulator" } ", press " b { "Save settings" } ", then " b { "Connect" } " in the top bar." }
                     li { "Tap a turnout on the " b { "Panel" } " to throw it. Watch blocks turn red as simulated trains move." }
-                    li { "Open " b { "Throttles" } ", enter any DCC address and press " b { "Acquire" } "." }
+                    li { "Press " b { "+ Throttle" } " in the dock, enter any DCC address and press " b { "Acquire" } "." }
                     li { "When you're ready, draw your own layout in the " b { "Editor" } " and connect to real hardware in " b { "Settings" } "." }
                 }
                 p { class: "muted",
-                    "Settings and your layout are saved automatically (in the browser, or in your settings folder for the desktop app). Use " b { "File → Save to disk" } " in the editor to keep a copy or move it to another computer."
+                    "Settings and your layout are saved (in the browser, or in your settings folder for the desktop app) and loaded every time the app opens. "
+                    b { "Export settings…" } " in Settings saves both in one file, to keep a copy or move them to another computer; block and turnout states and throttles are never saved."
                 }
             }
 
@@ -62,6 +65,7 @@ pub fn HelpView() -> Element {
                     div {
                         h4 { "Simulator" }
                         p { "A pretend layout and command station built in: blocks change on their own, turnouts report back, and any locomotive address can be acquired. Great for learning and for designing panels." }
+                        p { class: "muted small", "The simulator never connects by itself: press Connect to start it." }
                     }
                 }
                 h4 { "The status pill" }
@@ -97,7 +101,24 @@ pub fn HelpView() -> Element {
                         p { class: "muted small", "Turnouts without feedback sensors show the last command seen on the bus, from any panel or fascia button." }
                     }
                 }
-                p { class: "muted small", "Tip: turn on " i { "Ask before throwing a turnout" } " in Settings for public operating sessions, and " i { "Show bus monitor" } " to watch the raw traffic." }
+                p { class: "muted small",
+                    "When it connects, the panel asks the layout for every block's occupancy and turnout's position, and asks again a few seconds later about anything that hasn't answered. "
+                    "The " b { "⟳" } " button beside the zoom controls asks again."
+                }
+                p { class: "muted small", "Tip: turn on " i { "Ask before throwing a turnout" } " in Settings for public operating sessions, and open the " i { "Monitor" } " to watch the raw traffic." }
+            }
+
+            section { class: "card", id: "windows",
+                h2 { "Windows and the dock" }
+                p {
+                    "The panel, throttles, node configuration, editor, settings and this help each open in a window. "
+                    "Drag a window by its title bar, resize it from the bottom-right corner, and use "
+                    b { "–" } " to minimise, " b { "□" } " to maximise (or double-click the title) and " b { "✕" } " to close."
+                }
+                p {
+                    "The " b { "dock" } " along the bottom opens each kind of window; pressing it again brings the window to the front, or minimises it if it's already there. "
+                    "Every throttle and node window also gets its own button. On a phone, the front window fills the screen and the dock switches between them."
+                }
             }
 
             section { class: "card", id: "throttle",
@@ -106,13 +127,28 @@ pub fn HelpView() -> Element {
                     li { "Enter the locomotive's DCC address. Tick " b { "Long address" } " if the locomotive uses a long (4-digit) address below 128; addresses above 127 are always long." }
                     li { "Press " b { "Acquire" } ". The panel asks the LCC command station for that locomotive and takes control of it." }
                     li { "Use the slider for speed (0–126 steps), " b { "REV/FWD" } " for direction, and " b { "F0–F28" } " for lights, sound and other functions." }
-                    li { "Press " b { "✕" } " to release the locomotive so another throttle can take it." }
+                    li { "Press " b { "✕" } " to release the locomotive so another throttle can take it. Closing the throttle window releases it too." }
                 }
+                p { "Press " b { "+ Throttle" } " in the dock for each locomotive you want to run; each gets its own window." }
                 p { b { "EMERGENCY STOP" } " stops one locomotive immediately; " b { "STOP ALL" } " in the top bar stops every train this panel is running." }
                 p { class: "muted small",
                     "Needs an OpenLCB command station that supports the Traction protocol (for example a TCS CS-105). "
                     "If a train is already controlled by another throttle, you'll be told; release it there first."
                 }
+            }
+
+            section { class: "card", id: "nodes",
+                h2 { "Configuring LCC nodes" }
+                p {
+                    "Open " b { "Nodes" } " from the dock to see every node on the bus. " b { "Configure" } " downloads the node's configuration description (CDI) and shows its settings as a form."
+                }
+                ul {
+                    li { "Open a group to read its values from the node." }
+                    li { "Change a value and press " b { "Write" } " (or " kbd { "Enter" } "). " b { "↺" } " (or " kbd { "Esc" } ") undoes the edit, " b { "⟳" } " reads it again." }
+                    li { b { "Read all" } " reads every value; " b { "Restart node" } " restarts it, for settings that only apply after a restart." }
+                    li { "Event IDs are 8 hex bytes, like " code { "05.01.01.01.22.00.00.FF" } "." }
+                }
+                p { class: "muted small", "The simulator's layout node has settings too (random occupancy, its period, turnout feedback delay), so you can try this without hardware." }
             }
 
             section { class: "card", id: "editor",

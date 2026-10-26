@@ -171,12 +171,14 @@ pub struct KeyMsg {
     pub shift: bool,
 }
 
-/// Listens for shortcut keys on the whole page while the editor is open,
-/// ignoring keys typed into text fields.
+/// Listens for shortcut keys on the whole page while the editor's window
+/// is the one in front, ignoring keys typed into text fields.
 pub const KEY_LISTENER: &str = r#"
     const h = (e) => {
         const t = e.target;
         if (t && t.closest && t.closest("input, select, textarea, [contenteditable]")) return;
+        const ed = document.querySelector(".ed");
+        if (!ed || !ed.closest(".win.top")) return;
         const ctrl = e.ctrlKey || e.metaKey;
         const k = e.key;
         const plain = ["r", "R", "Delete", "Backspace", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",

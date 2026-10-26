@@ -890,6 +890,12 @@ impl Dispatcher {
                 .collect(),
             _ => return,
         };
+        self.read_config_fields(node, fields);
+    }
+
+    /// Read the given `(space, address, size)` ranges of `node`'s memory,
+    /// batched into as few requests as possible.
+    pub fn read_config_fields(&mut self, node: NodeId, fields: Vec<(u8, u32, u32)>) {
         for (space, addr, len) in plan_reads(fields) {
             self.config.enqueue_read(node, space, addr, len, self.now);
         }

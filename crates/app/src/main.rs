@@ -6,6 +6,7 @@ use rolcb::NodeId;
 use s4d_core::{Layout, LinkState};
 
 mod bus;
+mod desktop;
 mod platform;
 mod storage;
 mod track;
@@ -13,6 +14,7 @@ mod zoom;
 mod views {
     pub mod editor;
     pub mod help;
+    pub mod nodes;
     pub mod panel;
     pub mod settings;
     pub mod throttle;
@@ -25,20 +27,11 @@ const STYLE: Asset = asset!("/assets/style.css");
 const MANIFEST: Asset = asset!("/assets/manifest.webmanifest");
 const ICON: Asset = asset!("/assets/icon.svg");
 
-#[derive(Clone, Copy, PartialEq)]
-enum Tab {
-    Panel,
-    Throttles,
-    Editor,
-    Settings,
-    Help,
-}
-
-/// The editor's unsaved copy of the layout (kept while switching tabs).
+/// The editor's unsaved copy of the layout (kept when its window closes).
 #[derive(Clone, Copy)]
 pub struct Draft(pub Signal<Option<Layout>>);
 
-/// Editor undo/redo stacks (kept while switching tabs).
+/// Editor undo/redo stacks (kept when its window closes).
 #[derive(Clone, Copy)]
 pub struct History {
     pub undo: Signal<Vec<Layout>>,
@@ -102,7 +95,7 @@ fn App() -> Element {
         bus.set_monitor(s.show_monitor);
         bus
     });
-    let mut tab = use_signal(|| Tab::Panel);
+    desktop::use_desktop(bus);
     // Saved data that couldn't be read (settings and layout are loaded above).
     let mut load_error = use_signal(storage::take_load_error);
 
@@ -135,7 +128,7 @@ fn App() -> Element {
         document::Meta { name: "theme-color", content: "#14181c" }
         document::Meta { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" }
         div { class: "app",
-            Header { tab }
+            Header {}
             if let Some(e) = load_error() {
                 div {
                     class: "error",
@@ -145,31 +138,14 @@ fn App() -> Element {
                     "{e} (click to dismiss)"
                 }
             }
-            main {
-                match tab() {
-                    Tab::Panel => rsx! { views::panel::PanelView {} },
-                    Tab::Throttles => rsx! { views::throttle::ThrottleView {} },
-                    Tab::Editor => rsx! { views::editor::EditorView {} },
-                    Tab::Settings => rsx! { views::settings::SettingsView {} },
-                    Tab::Help => rsx! { views::help::HelpView {} },
-                }
-            }
-            nav { class: "tabbar",
-                for (t, icon, label) in [(Tab::Panel, "▦", "Panel"), (Tab::Throttles, "◉", "Throttles"), (Tab::Editor, "✎", "Editor"), (Tab::Settings, "⚙", "Settings"), (Tab::Help, "?", "Help")] {
-                    button {
-                        class: if tab() == t { "on" } else { "" },
-                        onclick: move |_| tab.set(t),
-                        span { class: "icon", "{icon}" }
-                        span { "{label}" }
-                    }
-                }
-            }
+            desktop::DesktopArea {}
+            desktop::Dock {}
         }
     }
 }
 
 #[component]
-fn Header(tab: Signal<Tab>) -> Element {
+fn Header() -> Element {
     let bus = use_context::<Bus>();
     let settings = use_context::<Signal<Settings>>();
     let conn = bus.conn.read().clone();

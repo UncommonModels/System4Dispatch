@@ -101,13 +101,20 @@ pub fn PanelView() -> Element {
                 if layout.elements.is_empty() {
                     div { class: "empty",
                         p { "This layout has no track yet." }
-                        p { "Open the " b { "Editor" } " tab to draw your panel, or load the demo layout there." }
+                        p { "Open the " b { "Editor" } " from the dock to draw your panel, or load the demo layout there." }
                     }
                 } else {
                     div { class: "zoom-bar",
                         button { class: "icon-btn", title: "Zoom out (Ctrl+wheel)", onclick: move |_| zoom.zoom_by(1.0 / 1.25), "−" }
                         button { class: "zoom-label", title: "Fit the whole height of the layout", onclick: move |_| zoom.set(None), "{zoom.label()}" }
                         button { class: "icon-btn", title: "Zoom in (Ctrl+wheel)", onclick: move |_| zoom.zoom_by(1.25), "+" }
+                        button {
+                            class: "icon-btn",
+                            title: "Ask the layout again for every block's occupancy and turnout's position",
+                            disabled: !online,
+                            onclick: move |_| bus.act(|d, _| d.query_state()),
+                            "⟳"
+                        }
                     }
                     div { class: "panel-scroll", title: "Drag to scroll, Ctrl+wheel to zoom",
                         TrackView {
@@ -282,6 +289,18 @@ pub fn PanelView() -> Element {
                 }
             }
         }
+    }
+}
+
+/// The bus monitor in a window of its own. Logging is on while it's open.
+#[component]
+pub fn MonitorWindow() -> Element {
+    let bus = use_context::<Bus>();
+    let settings = use_context::<Signal<Settings>>();
+    use_hook(move || bus.set_monitor(true));
+    use_drop(move || bus.set_monitor(settings.peek().show_monitor));
+    rsx! {
+        div { class: "monitor-window", Monitor {} }
     }
 }
 

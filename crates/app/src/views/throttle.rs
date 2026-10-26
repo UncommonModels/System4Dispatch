@@ -8,6 +8,7 @@ use dioxus::prelude::*;
 use s4d_core::{LinkState, Throttle, ThrottleState};
 
 use crate::bus::Bus;
+use crate::desktop::Desktop;
 use crate::platform;
 
 /// Minimum time between SetSpeed commands from the slider (about 10 Hz).
@@ -21,13 +22,28 @@ struct SpeedLimiter {
     scheduled: bool,
 }
 
+/// One throttle window: an acquire form until it has a train, then the
+/// throttle. `throttle` is the dispatcher's throttle id once acquired.
 #[component]
-pub fn ThrottleView() -> Element {
+pub fn ThrottleWindow(win: u32, throttle: Option<u32>) -> Element {
     let bus = use_context::<Bus>();
+    let desk = use_context::<Desktop>();
     let mut address = use_signal(|| "3".to_string());
     let mut long = use_signal(|| false);
-    let (throttles, online) =
-        bus.view(|d| (d.throttles.clone(), d.link_state() == LinkState::Online));
+    let (t, online) = bus.view(|d| {
+        (
+            throttle.and_then(|id| d.throttles.iter().find(|t| t.id == id).cloned()),
+            d.link_state() == LinkState::Online,
+        )
+    });
+
+    // Released (from the card's ✕): back to the acquire form. `view`
+    // subscribes the effect to the bus, so it notices.
+    use_effect(use_reactive!(|(throttle,)| {
+        if throttle.is_some() && bus.view(|d| !d.throttles.iter().any(|t| Some(t.id) == throttle)) {
+            desk.set_throttle(win, None);
+        }
+    }));
 
     // DCC short addresses stop at 127; anything above is a long address.
     let forced_long = address.read().trim().parse::<u16>().is_ok_and(|a| a > 127);
@@ -35,11 +51,19 @@ pub fn ThrottleView() -> Element {
         if let Ok(a) = address.read().trim().parse::<u16>() {
             if (1..=10239).contains(&a) {
                 let long = long() || a > 127;
-                bus.act(|d, now| d.acquire(a, long, now));
+                let id = bus.act(|d, now| d.acquire(a, long, now));
+                desk.set_throttle(win, Some(id));
             }
         }
     };
 
+    if let Some(t) = t {
+        return rsx! {
+            div { class: "throttle-view",
+                ThrottleCard { t }
+            }
+        };
+    }
     rsx! {
         div { class: "throttle-view",
             form {
@@ -49,6 +73,7 @@ pub fn ThrottleView() -> Element {
                     input {
                         r#type: "number", inputmode: "numeric", min: "1", max: "10239",
                         value: "{address}",
+                        autofocus: true,
                         oninput: move |e| address.set(e.value()),
                     }
                 }
@@ -63,15 +88,11 @@ pub fn ThrottleView() -> Element {
                     "Long address"
                 }
                 button { r#type: "submit", class: "primary", disabled: !online, "Acquire" }
-                if !online { span { class: "muted", "Connect first." } }
             }
-            if throttles.is_empty() {
-                p { class: "muted center", "No throttles open. Enter a locomotive address and press Acquire." }
-            }
-            div { class: "throttles",
-                for t in throttles.into_iter() {
-                    ThrottleCard { key: "{t.id}", t }
-                }
+            if !online {
+                p { class: "muted", "Connect first." }
+            } else {
+                p { class: "muted", "Enter a locomotive address and press Acquire. Closing this window releases the train." }
             }
         }
     }
