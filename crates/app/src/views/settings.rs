@@ -6,18 +6,19 @@ use rolcb::NodeId;
 use crate::bus::{Bus, ConnStatus};
 use crate::platform;
 use crate::storage::{
-    save_settings, settings_from_json, settings_json, settings_location, ConnKind, Settings,
-    ThemePref,
+    save_settings, settings_file_from_json, settings_file_json, storage_locations, ConnKind,
+    Settings, ThemePref,
 };
 use crate::views::panel::Monitor;
 
 #[component]
 pub fn SettingsView() -> Element {
     let bus = use_context::<Bus>();
-    let mut settings = use_context::<Signal<Settings>>();
+    let settings = use_context::<Signal<Settings>>();
     let mut form = use_signal(|| settings.read().clone());
     let mut node_err = use_signal(|| None::<String>);
     let mut file_msg = use_signal(|| None::<String>);
+    let mut draft = use_context::<crate::Draft>().0;
     let mut ports = use_signal(platform::serial_ports);
     let conn = bus.conn.read().clone();
     let (alias, node, dup) = bus.view(|d| (d.alias(), d.node_id(), d.duplicate_node_id()));
@@ -26,40 +27,12 @@ pub fn SettingsView() -> Element {
 
     let save = move |_| {
         let new = form.read().clone();
-        let node_id = match new.node_id.parse::<NodeId>() {
-            Ok(n) => n,
-            Err(_) => {
-                node_err.set(Some(
-                    "Node ID must be 6 hex bytes, e.g. 05.01.01.01.8D.42".into(),
-                ));
-                return;
-            }
-        };
-        node_err.set(None);
-        let old = settings.read().clone();
-        save_settings(&new);
-        settings.set(new.clone());
-        bus.set_monitor(new.show_monitor);
-        platform::apply_theme(new.theme);
-        let node_changed = old.node_id != new.node_id;
-        // Captured before reset_node, which disconnects.
-        let was_wanted = bus.is_wanted();
-        if node_changed {
-            bus.reset_node(node_id);
-            bus.set_monitor(new.show_monitor);
-        }
-        let link_changed = old.conn != new.conn
-            || old.tcp_addr != new.tcp_addr
-            || old.serial_port != new.serial_port
-            || old.baud != new.baud;
-        if (link_changed || node_changed) && was_wanted {
-            bus.disconnect();
-            // Web Serial needs a click on Connect to pick the port.
-            if desktop || new.conn != ConnKind::Serial {
-                bus.connect(&new, false);
-            }
+        match apply_settings(bus, settings, new) {
+            Ok(()) => node_err.set(None),
+            Err(e) => node_err.set(Some(e)),
         }
     };
+    let (settings_path, layout_path) = storage_locations();
 
     rsx! {
         div { class: "settings-view",
@@ -187,21 +160,36 @@ pub fn SettingsView() -> Element {
             section { class: "card",
                 h3 { "Settings file" }
                 p { class: "muted small",
-                    "Saved settings are loaded every time the app opens. The track layout and open throttles are not part of them. "
-                    "Kept in " code { "{settings_location()}" } "."
+                    "Settings and the track layout are saved as you change them and loaded every time the app opens: settings in "
+                    code { "{settings_path}" } ", the layout in " code { "{layout_path}" } "."
+                }
+                p { class: "muted small",
+                    "Export puts both in one file; importing that file replaces your settings and layout. "
+                    "Live state (block occupancy, turnout positions, throttles) is never saved."
                 }
                 div { class: "buttons",
                     button {
-                        onclick: move |_| platform::save_file("system4dispatch-settings.json", &settings_json(&settings.read())),
+                        onclick: move |_| {
+                            let layout = bus.peek(|d| d.layout().clone());
+                            platform::save_file("system4dispatch-settings.json", &settings_file_json(&settings.read(), &layout));
+                        },
                         "Export settings…"
                     }
                     button {
                         onclick: move |_| async move {
                             let Some(text) = platform::open_file().await else { return };
-                            match settings_from_json(&text) {
-                                Ok(s) => {
-                                    form.set(s);
-                                    file_msg.set(Some("Imported. Press Save settings to use them.".into()));
+                            match settings_file_from_json(&text) {
+                                Ok((new, layout)) => {
+                                    if let Some(l) = layout {
+                                        // The editor's unsaved copy is of the old layout.
+                                        draft.set(None);
+                                        crate::save_layout(bus, l);
+                                    }
+                                    form.set(new.clone());
+                                    match apply_settings(bus, settings, new) {
+                                        Ok(()) => file_msg.set(Some("Settings imported.".into())),
+                                        Err(e) => file_msg.set(Some(e)),
+                                    }
                                 }
                                 Err(e) => file_msg.set(Some(format!("That file isn't a settings file: {e}"))),
                             }
@@ -223,4 +211,37 @@ pub fn SettingsView() -> Element {
             }
         }
     }
+}
+
+/// Save and apply new settings: theme, monitor, Node ID, and reconnect if
+/// the link changed while connected.
+fn apply_settings(bus: Bus, mut settings: Signal<Settings>, new: Settings) -> Result<(), String> {
+    let node_id = new
+        .node_id
+        .parse::<NodeId>()
+        .map_err(|_| "Node ID must be 6 hex bytes, e.g. 05.01.01.01.8D.42".to_string())?;
+    let old = settings.peek().clone();
+    save_settings(&new);
+    settings.set(new.clone());
+    bus.set_monitor(new.show_monitor);
+    platform::apply_theme(new.theme);
+    let node_changed = old.node_id != new.node_id;
+    // Captured before reset_node, which disconnects.
+    let was_wanted = bus.is_wanted();
+    if node_changed {
+        bus.reset_node(node_id);
+        bus.set_monitor(new.show_monitor);
+    }
+    let link_changed = old.conn != new.conn
+        || old.tcp_addr != new.tcp_addr
+        || old.serial_port != new.serial_port
+        || old.baud != new.baud;
+    if (link_changed || node_changed) && was_wanted {
+        bus.disconnect();
+        // Web Serial needs a click on Connect to pick the port.
+        if platform::TCP_AVAILABLE || new.conn != ConnKind::Serial {
+            bus.connect(&new, false);
+        }
+    }
+    Ok(())
 }

@@ -163,23 +163,43 @@ pub fn save_settings(s: &Settings) {
     platform::storage_set(SETTINGS_KEY, &settings_json(s));
 }
 
-/// Settings as the JSON saved on disk and exported to a file.
-pub fn settings_json(s: &Settings) -> String {
+/// Settings as the JSON saved on disk.
+fn settings_json(s: &Settings) -> String {
     serde_json::to_string_pretty(s).unwrap()
 }
 
-/// Settings from an exported file. Anything missing gets its default.
-pub fn settings_from_json(raw: &str) -> Result<Settings, String> {
-    let mut s: Settings = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+/// A settings file for export: the settings plus the track layout (but no
+/// live state such as occupancy, turnout positions or throttles).
+pub fn settings_file_json(s: &Settings, layout: &Layout) -> String {
+    let mut v = serde_json::to_value(s).unwrap();
+    v["layout"] = serde_json::to_value(layout).unwrap();
+    serde_json::to_string_pretty(&v).unwrap()
+}
+
+/// Read an exported settings file. Settings missing from it get their
+/// defaults; the layout is `None` if the file has none.
+pub fn settings_file_from_json(raw: &str) -> Result<(Settings, Option<Layout>), String> {
+    let mut v: serde_json::Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+    if !v.is_object() {
+        return Err("not a JSON object".into());
+    }
+    let layout = match v.as_object_mut().and_then(|o| o.remove("layout")) {
+        Some(l) => Some(Layout::from_json(&l.to_string()).map_err(|e| format!("layout: {e}"))?),
+        None => None,
+    };
+    let mut s: Settings = serde_json::from_value(v).map_err(|e| e.to_string())?;
     if !ConnKind::available().contains(&s.conn) {
         s.conn = ConnKind::Simulator;
     }
-    Ok(s)
+    Ok((s, layout))
 }
 
-/// Where the settings are kept, for display.
-pub fn settings_location() -> String {
-    platform::storage_location(SETTINGS_KEY)
+/// Where the settings and the layout are kept, for display.
+pub fn storage_locations() -> (String, String) {
+    (
+        platform::storage_location(SETTINGS_KEY),
+        platform::storage_location(LAYOUT_KEY),
+    )
 }
 
 /// The saved layout, if there is a readable one. An unreadable one is
