@@ -274,7 +274,7 @@ impl NodeConfig {
         self.queue.len() + self.current.is_some() as usize
     }
 
-    /// When [`poll`](NodeConfig::poll) next needs to run.
+    /// When the dispatcher next needs to poll for a timeout.
     pub fn next_deadline(&self) -> Option<u64> {
         self.current.as_ref().map(|c| c.deadline)
     }
