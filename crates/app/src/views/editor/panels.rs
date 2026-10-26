@@ -542,6 +542,7 @@ pub fn BlocksPanel(
                                     label { class: "field", span { "Name" }
                                         input { value: "{b.name}", placeholder: "e.g. West Main", onchange: move |e| { let v = e.value(); set(i3.clone(), Box::new(move |b| b.name = v)) } }
                                     }
+                                    super::device::DevicePicker { target: super::device::Target::Block(b.id.clone()), device: b.device.clone() }
                                     EventField { label: "Occupied event", value: b.occupied_event, recent: last, on_set: move |v| set(i4.clone(), Box::new(move |b| b.occupied_event = v)) }
                                     EventField { label: "Clear event", value: b.clear_event, recent: last, on_set: move |v| set(i5.clone(), Box::new(move |b| b.clear_event = v)) }
                                     div { class: "row-actions",
@@ -670,6 +671,7 @@ pub fn TurnoutsPanel(layout: Layout, recent: Vec<EventId>) -> Element {
                                     label { class: "field", span { "Name" }
                                         input { value: "{t.name}", placeholder: "e.g. Hilltown West", onchange: move |e| { let v = e.value(); set(i2.clone(), Box::new(move |t| t.name = v)) } }
                                     }
+                                    super::device::DevicePicker { target: super::device::Target::Turnout(t.id.clone()), device: t.device.clone() }
                                     div { class: "field-caption", "Throw" }
                                     EventField { label: "Normal", value: t.normal_event, recent: last, on_set: move |v| set(i3.clone(), Box::new(move |t| t.normal_event = v)) }
                                     EventField { label: "Reverse", value: t.reverse_event, recent: last, on_set: move |v| set(i4.clone(), Box::new(move |t| t.reverse_event = v)) }

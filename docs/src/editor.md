@@ -236,6 +236,21 @@ Track that crossed the gap is joined up for you, in the same block. A line runni
 
 A few crossings can't be joined in a single row or column: a diagonal from one switch straight into another, or a curve that would have to turn 90°. Those are left open, and a message names the tiles next to them so you can draw the missing pieces yourself. Insert is one step on the undo list, like any other edit.
 
+## Picking a device
+
+If a block is detected by, or a turnout driven by, an Uncommon Models **FemtoLCC** board, you don't need to type or learn its events. Open the block in the Blocks tab (or the turnout in the Turnouts tab) and:
+
+1. Under **Detected by** (blocks) or **Driven by** (turnouts), choose the board. Every FemtoLCC on the bus is listed by name; to pick one that isn't connected right now, choose *Another FemtoLCC, by node ID…* and type its node ID (it's in JMRI's node list, and printed on the board's console).
+2. Under **Output**, choose where it's wired: output **A**–**D** for a block; output A–D or a **servo board channel** for a turnout.
+
+The events are filled in straight away with the board's factory events, which come from its node ID. Then, if you're connected and the board is on the bus, the editor reads that output's settings from the board and fills in the events it actually uses, in case they were changed in JMRI. The note under the choice says which: *Checked with the board: it uses the factory events*, or *Read from the board: it has been set to other events*. **Read events from the board** reads them again.
+
+If the output isn't set up for the job on the board (an output picked for a block that's set to *Turnout motor* or *Unused*, say) a warning says so, with a button that sets it up: **Make Output D a track block**, for instance. That writes to the board, like changing the setting in JMRI.
+
+For a turnout, all four events are filled in: Close and Throw as the commands, and Closed and Thrown as feedback. The board sends Closed or Thrown as soon as it has moved the motor or servo, so the panel knows the board acted.
+
+The board and output are saved with the block or turnout in the layout file, so they're shown next time. To try this without a board, connect to the **Simulator**: it includes a simulated FemtoLCC whose output B has been given events of its own, output C is a turnout motor and servo board 1 channel 1 a servo turnout.
+
 ## Learning event IDs from the bus
 
 You rarely need to type an event ID. Instead, let the layout tell you:

@@ -5,6 +5,7 @@
 //!   a `rolcb::Node`.
 //! * [`cdi`] and [`config`]: reading other nodes' configuration
 //!   descriptions (CDI) and reading and writing their configuration memory.
+//! * [`femto`]: event IDs and settings of Uncommon Models' FemtoLCC board.
 //! * [`sim`]: a simulated layout and command station for demos and tests.
 //! * [`testing`]: a virtual bench that wires a dispatcher to a simulator.
 //!
@@ -34,12 +35,14 @@
 //! * `schema`: derive [`schemars::JsonSchema`](https://docs.rs/schemars) for
 //!   the layout types and enable [`layout::json_schema`].
 
+#![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
 pub mod cdi;
 pub mod config;
 pub mod dispatcher;
+pub mod femto;
 pub mod layout;
 pub mod sim;
 pub mod testing;
@@ -49,6 +52,6 @@ pub use dispatcher::{
     TurntableStatus,
 };
 pub use layout::{
-    Block, Element, Feedback, Grid, Issue, Layout, MoveError, Over, RouteError, Shape, Turnout,
-    Turntable, TurntableTrack, FORMAT_VERSION,
+    Block, Device, Element, Feedback, Grid, Issue, Layout, MoveError, Over, RouteError, Shape,
+    Turnout, Turntable, TurntableTrack, FORMAT_VERSION,
 };

@@ -36,6 +36,14 @@
 //!   what it reports in SNIP. Writes are acknowledged with "reply pending"
 //!   followed by a write reply, like most real nodes.
 //!
+//! * **A FemtoLCC.** A second node, node ID `02.01.57.FE.00.01`, poses as
+//!   an Uncommon Models FemtoLCC board (see [`crate::femto`]) so it can be
+//!   picked for a block or turnout in the editor: it answers SNIP, serves a
+//!   cut-down copy of the board's CDI and keeps settings memory, but drives
+//!   nothing. Output B's block events have been changed from the factory
+//!   ones, output C is a turnout motor and servo board 1 channel 1 a servo
+//!   turnout.
+//!
 //! Not modelled: CAN bandwidth, lost frames, consists and Controller
 //! Changed notifications.
 
@@ -48,6 +56,10 @@ use rolcb::{CanFrame, EventId, EventState, Node, NodeId, NodeInfo};
 use crate::config::DATAGRAM_MEMORY_CONFIG;
 use crate::dispatcher::Position;
 use crate::layout::Layout;
+
+mod femto_board;
+use femto_board::SimFemto;
+pub use femto_board::{SIM_FEMTO_CDI, SIM_FEMTO_NODE};
 
 /// Trains ask their controller for a keep-alive this often.
 pub const HEARTBEAT_MS: u64 = 10_000;
@@ -138,6 +150,7 @@ pub struct Simulator {
     /// Steps under way: (time the bridge lines up, id, track index).
     turning: Vec<(u64, String, usize)>,
     trains: Vec<SimTrain>,
+    femto: SimFemto,
     rng: u64,
     next_occupancy: u64,
     now: u64,
@@ -184,6 +197,7 @@ impl Simulator {
             layout,
             pending_feedback: Vec::new(),
             trains: Vec::new(),
+            femto: SimFemto::new(now),
             rng: 0x2545_F491_4F6C_DD1D,
             next_occupancy: now + OCCUPANCY_PERIOD_MS,
             now,
@@ -320,6 +334,7 @@ impl Simulator {
     pub fn poll(&mut self, now: u64) {
         self.now = now;
         self.node.poll(now);
+        self.femto.node.poll(now);
         for t in &mut self.trains {
             t.node.poll(now);
             if t.controller.is_some() && now >= t.next_heartbeat {
@@ -431,6 +446,13 @@ impl Simulator {
     pub fn receive(&mut self, frame: &CanFrame, now: u64) {
         self.now = now;
         let rx = self.node.receive(frame, now);
+        if let Some(r) = self.femto.node.receive(frame, now) {
+            if let Message::Datagram { dest, data } = r.msg {
+                if Some(dest) == self.femto.node.alias() {
+                    self.femto.memory_config(r.src_alias, &data);
+                }
+            }
+        }
         for t in &mut self.trains {
             if let Some(r) = t.node.receive(frame, now) {
                 handle_train(t, r.src_alias, r.msg, now);
@@ -632,6 +654,7 @@ impl Simulator {
     /// Frames to put on the bus.
     pub fn take_outgoing(&mut self) -> Vec<CanFrame> {
         let mut out = self.node.take_outgoing();
+        out.extend(self.femto.node.take_outgoing());
         for t in &mut self.trains {
             out.extend(t.node.take_outgoing());
         }

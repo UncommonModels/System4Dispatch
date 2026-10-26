@@ -2,6 +2,7 @@
 //! top bar, a tool rail on the left, the canvas in the middle, a properties
 //! panel on the right and a status bar underneath.
 
+mod device;
 mod ops;
 mod panels;
 

@@ -1,6 +1,8 @@
 //! System4Dispatch (Dioxus): runs in the browser (WASM, feature `web`) or as
 //! a native desktop app (feature `desktop`).
 
+#![forbid(unsafe_code)]
+
 use dioxus::prelude::*;
 use rolcb::NodeId;
 use s4d_core::{Layout, LinkState};

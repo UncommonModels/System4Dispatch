@@ -511,3 +511,5 @@ kbd { font: 12px ui-monospace, Menlo, Consolas, monospace; padding: 1px 5px; bor
 .term-line.rx .term-mark { color: #58a6ff; }
 .term-line.rx { color: #a5d6ff; }
 .term-line.sys { color: #d29922; }
+.hint.warn { color: var(--warn); }
+.device-pick .seg-buttons button { min-width: 44px; }

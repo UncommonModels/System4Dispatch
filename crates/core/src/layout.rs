@@ -143,6 +143,26 @@ pub struct Block {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "schema", schemars(with = "Option<EventIdSchema>"))]
     pub clear_event: Option<EventId>,
+    /// The detector that reports this block, if it was picked from a list
+    /// of known devices (which also filled in the events).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<Device>,
+}
+
+/// The device output a block or turnout is wired to: which board, and which
+/// of its outputs. See [`crate::femto`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct Device {
+    /// The device's model, e.g. `"FemtoLCC"`.
+    pub model: String,
+    /// The device's node ID, e.g. `"02.01.57.A7.CD.94"`.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub node: rolcb::NodeId,
+    /// The output on the device: for a FemtoLCC `"A"`–`"D"`, or
+    /// `"S<board>.<channel>"` for a servo board channel (see
+    /// [`crate::femto::Output::code`]).
+    pub output: String,
 }
 
 impl Block {
@@ -195,6 +215,10 @@ pub struct Turnout {
     /// Throw the linked turnout to the opposite position instead.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub linked_inverted: bool,
+    /// The device output that drives this turnout, if it was picked from a
+    /// list of known devices (which also filled in the events).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<Device>,
 }
 
 /// Events produced by a turnout's position sensors.

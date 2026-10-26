@@ -53,6 +53,7 @@ Wherever an event is expected, write it as a string of eight hex bytes, for exam
 | `name` | string | no | Display name. If empty, the panel shows the ID. |
 | `occupied_event` | event | no | Event produced when the block becomes occupied. |
 | `clear_event` | event | no | Event produced when the block becomes clear. |
+| `device` | object | no | The device output this block is wired to, if it was picked in the editor: `model` (`"FemtoLCC"`), `node` (the board's node ID, like `"02.01.57.A7.CD.94"`) and `output` (`"A"`–`"D"`). Only used by the editor, to show the choice and read the events again; the events themselves are in the fields above. See [Devices](editor.md#picking-a-device). |
 
 The dispatcher treats these as follows:
 
@@ -86,6 +87,7 @@ The dispatcher treats these as follows:
 | `feedback` | object | no | Point-position feedback, with optional `normal_event` and `reverse_event`. The turnout counts as having feedback if either is set. |
 | `linked` | string | no | ID of another turnout that is always thrown together with this one. |
 | `linked_inverted` | boolean | no, default `false` | Throw the linked turnout to the **opposite** position. Only written when `true`. |
+| `device` | object | no | The device output this turnout is wired to, if it was picked in the editor: `model` (`"FemtoLCC"`), `node` (the board's node ID, like `"02.01.57.A7.CD.94"`) and `output` (`"A"`–`"D"`, or `"S1.1"`–`"S2.16"` for a servo board channel, board then channel). Only used by the editor, to show the choice and read the events again; the events themselves are in the fields above. See [Devices](editor.md#picking-a-device). |
 
 Without `normal_event` (or `reverse_event`) the panel can't throw the turnout in that direction; the button press is ignored.
 

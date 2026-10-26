@@ -73,6 +73,17 @@
             }
           ]
         },
+        "device": {
+          "description": "The detector that reports this block, if it was picked from a list\nof known devices (which also filled in the events).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Device"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "id": {
           "description": "Unique id (shared namespace with turnouts), e.g. `\"B1\"`.",
           "type": "string"
@@ -96,6 +107,29 @@
       },
       "required": [
         "id"
+      ]
+    },
+    "Device": {
+      "description": "The device output a block or turnout is wired to: which board, and which\nof its outputs. See [`crate::femto`].",
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "The device's model, e.g. `\"FemtoLCC\"`.",
+          "type": "string"
+        },
+        "node": {
+          "description": "The device's node ID, e.g. `\"02.01.57.A7.CD.94\"`.",
+          "type": "string"
+        },
+        "output": {
+          "description": "The output on the device: for a FemtoLCC `\"A\"`–`\"D\"`, or\n`\"S<board>.<channel>\"` for a servo board channel (see\n[`crate::femto::Output::code`]).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "node",
+        "output"
       ]
     },
     "Element": {
@@ -381,6 +415,17 @@
       "description": "A turnout. Sending `normal_event` / `reverse_event` throws it; optional\nfeedback events report the real point position.",
       "type": "object",
       "properties": {
+        "device": {
+          "description": "The device output that drives this turnout, if it was picked from a\nlist of known devices (which also filled in the events).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Device"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "feedback": {
           "description": "Point-position feedback, if the turnout has sensors.",
           "anyOf": [

@@ -887,3 +887,72 @@ fn nodes_are_discovered_once_per_login() {
     b.run(500);
     assert_eq!(verifies(&b), after_login);
 }
+
+#[test]
+fn reads_a_femtolcc_outputs_events() {
+    use crate::femto::{self, Output};
+    use crate::sim::SIM_FEMTO_NODE;
+    let node = NodeId::new(SIM_FEMTO_NODE);
+    let mut b = Bench::new();
+    b.run(2_000);
+    // Discovery found the board and its name.
+    let info = b.d.config.nodes[&node].info.clone().unwrap();
+    assert!(femto::is_femto(&info.manufacturer, &info.model));
+
+    b.d.load_cdi(node);
+    b.run(5_000);
+    let cdi = match &b.d.config.data[&node].cdi {
+        Some(Ok(c)) => c.clone(),
+        other => panic!("{other:?}"),
+    };
+    let block = femto::block_fields(&cdi, 1).unwrap();
+    let servo = femto::turnout_fields(
+        &cdi,
+        Output::Servo {
+            board: 0,
+            channel: 0,
+        },
+    )
+    .unwrap();
+    let fields: Vec<(u8, u32, u32)> = [&block.role, &servo.role]
+        .into_iter()
+        .chain(&block.events)
+        .chain(&servo.events)
+        .map(|f| (f.space, f.address, f.size))
+        .collect();
+    b.d.read_config_fields(node, fields);
+    b.run(3_000);
+    let data = &b.d.config.data[&node];
+    assert_eq!(data.error, None);
+    let event = |f: &crate::cdi::Field| {
+        let bytes = data.bytes(f.space, f.address, f.size).unwrap();
+        EventId::new(u64::from_be_bytes(bytes.try_into().unwrap()))
+    };
+    // Output B is a track block with events of its own, not the factory ones.
+    assert_eq!(
+        data.bytes(block.role.space, block.role.address, 1),
+        Some(vec![1])
+    );
+    assert_eq!(event(&block.events[0]), EventId::new(0x0501_0101_0142_0001));
+    assert_ne!(
+        (event(&block.events[0]), event(&block.events[1])),
+        femto::default_block_events(node, 1)
+    );
+    // Servo channel 1 is a turnout with the factory events.
+    assert_eq!(
+        data.bytes(servo.role.space, servo.role.address, 1),
+        Some(vec![3])
+    );
+    let t = femto::default_turnout_events(
+        node,
+        Output::Servo {
+            board: 0,
+            channel: 0,
+        },
+    );
+    let got: Vec<EventId> = servo.events.iter().map(event).collect();
+    assert_eq!(
+        got,
+        vec![t.normal, t.reverse, t.normal_feedback, t.reverse_feedback]
+    );
+}

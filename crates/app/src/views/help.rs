@@ -166,6 +166,7 @@ pub fn HelpView() -> Element {
                     li { "In the " b { "Blocks" } " tab, press " b { "+ New block" } " for each detection section and give it a name. Each block gets its own colour." }
                     li { "With nothing selected, " b { "Properties" } " lets you choose which block new tiles go in. Pick a track piece from the tool rail (or press " kbd { "1" } "–" kbd { "8" } ") and click or drag on the grid. A faint preview shows what you'll place; " kbd { "R" } " rotates it. New track with no block that joins two ends of the same block goes into that block." }
                     li { "Placing a turnout or wye creates a turnout for it. Open it in the " b { "Turnouts" } " tab to enter its events." }
+                    li { "Wired to a FemtoLCC? Open the block or turnout, choose the board under " i { "Detected by" } " or " i { "Driven by" } " and the output, and its events are filled in (and checked with the board when it's connected)." }
                     li { "Press " b { "Apply" } " (" kbd { "Ctrl" } "+" kbd { "S" } ") to use the layout on the panel. Until then your changes are a draft; " b { "Discard" } " throws them away." }
                 }
                 h4 { "Selecting and editing" }
