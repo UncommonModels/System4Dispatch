@@ -9,6 +9,12 @@
 //! so the views inside (the panel drawing in particular) don't re-render
 //! on every pointer move.
 //!
+//! Windows snap while they are dragged: their edges stick to the desktop's
+//! edges and to other windows, dropping one on the left or right edge
+//! fills that half of the desktop (a corner fills a quarter), and dropping
+//! it on the top edge maximises it. Dragging a snapped or maximised window
+//! away gives it back its earlier size. Holding Shift turns snapping off.
+//!
 //! On narrow screens the stylesheet shows only the top window, filling the
 //! desktop, and the dock switches between windows.
 //!
@@ -89,6 +95,9 @@ pub struct Win {
     pub z: u32,
     pub minimized: bool,
     pub maximized: bool,
+    /// The size to go back to when a window snapped to half or a quarter
+    /// of the desktop is dragged away.
+    pub restore: Option<(f64, f64)>,
 }
 
 /// The window manager, shared as context.
@@ -170,6 +179,7 @@ impl Desktop {
             z,
             minimized: false,
             maximized: false,
+            restore: None,
         });
         id
     }
@@ -267,10 +277,13 @@ impl Desktop {
         };
     }
 
-    fn set_geometry(&self, id: u32, x: f64, y: f64, w: f64, h: f64) {
+    /// A window was moved, resized or snapped by the page script.
+    fn set_geometry(&self, id: u32, g: Geom) {
         let mut wins = self.wins;
         if let Some(win) = wins.write().iter_mut().find(|win| win.id == id) {
-            (win.x, win.y, win.w, win.h) = (x, y, w, h);
+            (win.x, win.y, win.w, win.h) = (g.x, g.y, g.w, g.h);
+            win.restore = g.restore;
+            win.maximized = g.max;
         };
     }
 }
@@ -281,15 +294,28 @@ impl Desktop {
 enum PageMsg {
     Geom {
         id: u32,
-        x: f64,
-        y: f64,
-        w: f64,
-        h: f64,
+        #[serde(flatten)]
+        geom: Geom,
     },
     Area {
         w: f64,
         h: f64,
     },
+}
+
+/// A window's geometry after a drag.
+#[derive(Deserialize)]
+struct Geom {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    /// The size before it snapped to part of the desktop.
+    #[serde(default)]
+    restore: Option<(f64, f64)>,
+    /// Dropped on the top edge.
+    #[serde(default)]
+    max: bool,
 }
 
 /// Provide the [`Desktop`] context and open the starting windows.
@@ -301,7 +327,7 @@ pub fn use_desktop(bus: Bus) -> Desktop {
             let mut first = true;
             while let Ok(m) = eval.recv::<PageMsg>().await {
                 match m {
-                    PageMsg::Geom { id, x, y, w, h } => desk.set_geometry(id, x, y, w, h),
+                    PageMsg::Geom { id, geom } => desk.set_geometry(id, geom),
                     PageMsg::Area { w, h } => {
                         let mut area = desk.area;
                         area.set((w, h));
@@ -357,11 +383,19 @@ fn WinFrame(win: Win, is_top: bool) -> Element {
         "left:{}px;top:{}px;width:{}px;height:{}px;z-index:{}",
         win.x, win.y, win.w, win.h, win.z
     );
+    // The size a drag gives back: a maximised window's own, or the one
+    // from before it snapped.
+    let restore = match (win.maximized, win.restore) {
+        (true, _) => format!("{},{}", win.w, win.h),
+        (false, Some((w, h))) => format!("{w},{h}"),
+        (false, None) => String::new(),
+    };
     rsx! {
         div {
             class: "{class}",
             style: "{style}",
             "data-win": "{id}",
+            "data-restore": "{restore}",
             onpointerdown: move |_| desk.focus(id),
             div { class: "win-title",
                 ondoubleclick: move |_| desk.toggle_maximize(id),
@@ -508,45 +542,143 @@ pub fn Dock() -> Element {
 /// report the desktop's size.
 const WINDOW_SCRIPT: &str = r#"
     const desk = () => document.querySelector(".desktop");
-    let op = null;
+    // Snapping: how close (px) an edge must come to stick, how close the
+    // pointer must come to the desktop's edge to snap to a half, and how
+    // near a corner it must be to snap to a quarter.
+    const STICK = 10, EDGE = 8, CORNER = 90;
+    let op = null, preview = null;
+
+    // Pull `start` (or `start + size`) onto the nearest target in reach.
+    const stick = (start, size, targets) => {
+        let best = null;
+        for (const t of targets) {
+            for (const d of [t - start, t - start - size]) {
+                if (Math.abs(d) <= STICK && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+            }
+        }
+        return best === null ? start : start + best;
+    };
+    // Edges to stick to: the desktop's, and those of other windows that
+    // are level with (or beside) the span being moved.
+    const targets = (l, t, w, h) => {
+        const xs = [0, op.dw], ys = [0, op.dh];
+        for (const o of op.others) {
+            if (t < o.b + STICK && t + h > o.t - STICK) xs.push(o.l, o.r);
+            if (l < o.r + STICK && l + w > o.l - STICK) ys.push(o.t, o.b);
+        }
+        return { xs, ys };
+    };
+    // The part of the desktop the pointer would snap the window to, if any.
+    const zoneAt = (e) => {
+        const r = op.rect, dw = op.dw, dh = op.dh;
+        const hw = Math.round(dw / 2), hh = Math.round(dh / 2);
+        const left = e.clientX <= r.left + EDGE, right = e.clientX >= r.left + dw - EDGE;
+        if (left || right) {
+            const x = left ? 0 : hw, w = left ? hw : dw - hw;
+            if (e.clientY < r.top + CORNER) return { x, y: 0, w, h: hh };
+            if (e.clientY > r.top + dh - CORNER) return { x, y: hh, w, h: dh - hh };
+            return { x, y: 0, w, h: dh };
+        }
+        if (e.clientY <= r.top + EDGE) return { x: 0, y: 0, w: dw, h: dh, max: true };
+        return null;
+    };
+    const showZone = (z) => {
+        if (!z) { if (preview) preview.style.display = "none"; return; }
+        if (!preview) {
+            preview = document.createElement("div");
+            preview.className = "snap-preview";
+            document.body.appendChild(preview);
+        }
+        Object.assign(preview.style, { display: "block",
+            left: op.rect.left + z.x + "px", top: op.rect.top + z.y + "px",
+            width: z.w + "px", height: z.h + "px" });
+    };
+
     const onDown = (e) => {
         if (e.button !== 0) return;
         const t = e.target;
         const win = t.closest && t.closest(".win");
-        if (!win || win.classList.contains("max")) return;
+        if (!win) return;
         let mode = null;
         if (t.closest(".win-resize")) mode = "resize";
         else if (t.closest(".win-title") && !t.closest("button")) mode = "move";
         if (!mode) return;
         // Phone layout: windows fill the screen and don't move.
-        if (getComputedStyle(win).position !== "absolute" || getComputedStyle(win.querySelector(".win-resize")).display === "none") return;
+        if (getComputedStyle(win.querySelector(".win-max")).display === "none") return;
         const d = desk();
         e.preventDefault();
+        const others = [...d.querySelectorAll(".win")]
+            .filter((o) => o !== win && !o.classList.contains("min"))
+            .map((o) => ({ l: o.offsetLeft, t: o.offsetTop, r: o.offsetLeft + o.offsetWidth, b: o.offsetTop + o.offsetHeight }));
+        const restore = win.dataset.restore ? win.dataset.restore.split(",").map(Number) : null;
         op = { win, mode, x: e.clientX, y: e.clientY,
                l: win.offsetLeft, t: win.offsetTop, w: win.offsetWidth, h: win.offsetHeight,
-               dw: d.clientWidth, dh: d.clientHeight, moved: false };
+               dw: d.clientWidth, dh: d.clientHeight, rect: d.getBoundingClientRect(),
+               others, restore, zone: null, moved: false };
     };
     const onMove = (e) => {
         if (!op) return;
         const dx = e.clientX - op.x, dy = e.clientY - op.y;
         if (!op.moved && Math.hypot(dx, dy) < 3) return;
-        if (!op.moved) { op.moved = true; op.win.classList.add("dragging"); }
         const s = op.win.style;
+        if (!op.moved) {
+            op.moved = true;
+            op.win.classList.add("dragging");
+            // A snapped or maximised window gets its earlier size back,
+            // keeping the same spot of its title bar under the pointer.
+            if (op.mode === "move" && op.restore) {
+                const [rw, rh] = op.restore;
+                const along = (op.x - op.rect.left - op.l) / op.w;
+                op.win.classList.remove("max");
+                op.l = Math.round(op.x - op.rect.left - along * rw);
+                op.w = rw; op.h = rh;
+                s.width = rw + "px"; s.height = rh + "px";
+            }
+        }
+        const free = e.shiftKey;
         if (op.mode === "move") {
+            let l = op.l + dx, t = op.t + dy;
+            if (!free) {
+                const { xs, ys } = targets(l, t, op.w, op.h);
+                l = stick(l, op.w, xs);
+                t = stick(t, op.h, ys);
+            }
             // Keep the title bar reachable.
-            s.left = Math.min(Math.max(op.l + dx, 80 - op.w), op.dw - 80) + "px";
-            s.top = Math.min(Math.max(op.t + dy, 0), op.dh - 36) + "px";
+            s.left = Math.min(Math.max(l, 80 - op.w), op.dw - 80) + "px";
+            s.top = Math.min(Math.max(t, 0), op.dh - 36) + "px";
+            op.zone = free ? null : zoneAt(e);
+            showZone(op.zone);
         } else {
-            s.width = Math.max(240, op.w + dx) + "px";
-            s.height = Math.max(160, op.h + dy) + "px";
+            let r = op.l + Math.max(240, op.w + dx), b = op.t + Math.max(160, op.h + dy);
+            if (!free) {
+                const { xs, ys } = targets(op.l, op.t, r - op.l, b - op.t);
+                r = stick(r, 0, xs);
+                b = stick(b, 0, ys);
+            }
+            s.width = Math.max(240, r - op.l) + "px";
+            s.height = Math.max(160, b - op.t) + "px";
         }
     };
     const onUp = () => {
         if (!op) return;
-        const w = op.win;
+        const w = op.win, s = w.style, z = op.zone;
         w.classList.remove("dragging");
+        showZone(null);
         if (op.moved) {
-            dioxus.send({ t: "geom", id: +w.dataset.win, x: w.offsetLeft, y: w.offsetTop, w: w.offsetWidth, h: w.offsetHeight });
+            // A window that snapped got its earlier size back when the drag
+            // began, so that's the size to remember.
+            const g = { t: "geom", id: +w.dataset.win, x: w.offsetLeft, y: w.offsetTop,
+                        w: w.offsetWidth, h: w.offsetHeight, restore: null, max: false };
+            if (z && z.max) {
+                // Maximised: it keeps its own size and place for later.
+                g.max = true;
+                w.classList.add("max");
+            } else if (z) {
+                g.restore = [g.w, g.h];
+                Object.assign(g, { x: z.x, y: z.y, w: z.w, h: z.h });
+                Object.assign(s, { left: z.x + "px", top: z.y + "px", width: z.w + "px", height: z.h + "px" });
+            }
+            dioxus.send(g);
         }
         op = null;
     };

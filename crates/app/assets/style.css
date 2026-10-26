@@ -131,6 +131,11 @@ code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; 
 .win.max .win-resize { display: none; }
 .win.dragging { user-select: none; }
 .win.dragging .win-body { pointer-events: none; }
+.snap-preview {
+  position: fixed; z-index: 2147483000; pointer-events: none; display: none; box-sizing: border-box;
+  border: 2px solid var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 16%, transparent);
+  transition: left .08s, top .08s, width .08s, height .08s;
+}
 .win-title {
   flex: none; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 4px 0 12px;
   background: var(--surface-2); border-bottom: 1px solid var(--border); cursor: default; user-select: none; touch-action: none;

@@ -116,6 +116,11 @@ pub fn HelpView() -> Element {
                     b { "–" } " to minimise, " b { "□" } " to maximise (or double-click the title) and " b { "✕" } " to close."
                 }
                 p {
+                    "Windows snap as you drag them: their edges stick to the desktop's edges and to other windows. "
+                    "Drop a window on the left or right edge to fill that half of the desktop, in a corner to fill a quarter, or on the top edge to maximise it; "
+                    "an outline shows where it will go. Drag it away again and it gets its earlier size back. Hold " b { "Shift" } " while dragging to place a window freely."
+                }
+                p {
                     "The " b { "dock" } " along the bottom opens each kind of window; pressing it again brings the window to the front, or minimises it if it's already there. "
                     "Every throttle and node window also gets its own button. On a phone, the front window fills the screen and the dock switches between them."
                 }

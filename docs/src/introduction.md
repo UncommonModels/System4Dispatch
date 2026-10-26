@@ -34,7 +34,11 @@ If you only have a USB adapter plugged into the computer in front of you, the we
 
 The app is a small desktop of windows, with a top bar above and a **dock** along the bottom. The dock has a button for each kind of window, plus a button for each open throttle and configure window. It opens with just the Panel window.
 
-Drag a window by its title bar to move it, and drag its bottom-right corner to resize it. The buttons in the title bar minimise (–), maximise (□, or double-click the title bar) and close (✕) it. Clicking a window brings it to the front. In the dock, clicking the button of an open window brings it to the front, or minimises it if it is already in front. On a narrow screen, such as a phone, the front window fills the screen and the dock switches between windows. Window positions aren't saved.
+Drag a window by its title bar to move it, and drag its bottom-right corner to resize it. The buttons in the title bar minimise (–), maximise (□, or double-click the title bar) and close (✕) it.
+
+Windows snap while you drag them. Their edges stick to the edges of the desktop and of other windows, so they line up without gaps. Drop a window with the pointer on the left or right edge of the desktop to fill that half, near a corner to fill that quarter, or on the top edge to maximise it; an outline shows where it will go before you let go. Dragging a snapped or maximised window away gives it back the size it had before. Hold Shift while dragging to turn snapping off.
+
+Clicking a window brings it to the front. In the dock, clicking the button of an open window brings it to the front, or minimises it if it is already in front. On a narrow screen, such as a phone, the front window fills the screen and the dock switches between windows. Window positions aren't saved.
 
 **The top bar** shows the layout name, a status pill (*Offline*, *Connecting…*, *Logging in…*, *Online · 7AD*, or *Error*), and a **Connect** or **Disconnect** button. While any throttle is open, a red **STOP ALL** button appears there too.
 
