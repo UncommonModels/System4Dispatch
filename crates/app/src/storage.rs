@@ -102,6 +102,7 @@ pub struct Settings {
     pub baud: u32,
     pub node_id: String,
     pub confirm_throws: bool,
+    /// Connect when the app opens. Never applies to the simulator.
     pub auto_connect: bool,
     pub show_monitor: bool,
     pub theme: ThemePref,
@@ -110,13 +111,18 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            conn: ConnKind::Simulator,
+            // Real hardware by default; the simulator is there to try things.
+            conn: if platform::TCP_AVAILABLE {
+                ConnKind::Tcp
+            } else {
+                ConnKind::Serial
+            },
             tcp_addr: "localhost:12021".into(),
             serial_port: String::new(),
             baud: 115_200,
             node_id: random_node_id(),
             confirm_throws: false,
-            auto_connect: true,
+            auto_connect: false,
             show_monitor: false,
             theme: ThemePref::Auto,
         }
@@ -154,7 +160,26 @@ pub fn load_settings() -> Settings {
 }
 
 pub fn save_settings(s: &Settings) {
-    platform::storage_set(SETTINGS_KEY, &serde_json::to_string(s).unwrap());
+    platform::storage_set(SETTINGS_KEY, &settings_json(s));
+}
+
+/// Settings as the JSON saved on disk and exported to a file.
+pub fn settings_json(s: &Settings) -> String {
+    serde_json::to_string_pretty(s).unwrap()
+}
+
+/// Settings from an exported file. Anything missing gets its default.
+pub fn settings_from_json(raw: &str) -> Result<Settings, String> {
+    let mut s: Settings = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+    if !ConnKind::available().contains(&s.conn) {
+        s.conn = ConnKind::Simulator;
+    }
+    Ok(s)
+}
+
+/// Where the settings are kept, for display.
+pub fn settings_location() -> String {
+    platform::storage_location(SETTINGS_KEY)
 }
 
 /// The saved layout, if there is a readable one. An unreadable one is

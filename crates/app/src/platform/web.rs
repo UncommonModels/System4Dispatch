@@ -142,6 +142,11 @@ pub fn storage_get(key: &str) -> Option<String> {
     storage()?.get_item(key).ok().flatten()
 }
 
+/// Where a key is stored, for display.
+pub fn storage_location(key: &str) -> String {
+    format!("this browser's local storage ({key})")
+}
+
 pub fn storage_set(key: &str, value: &str) {
     if let Some(s) = storage() {
         let _ = s.set_item(key, value);

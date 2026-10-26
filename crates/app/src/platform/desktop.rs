@@ -156,6 +156,13 @@ pub fn storage_get(key: &str) -> Option<String> {
     std::fs::read_to_string(key_path(key)?).ok()
 }
 
+/// The file a key is stored in.
+pub fn storage_location(key: &str) -> String {
+    key_path(key)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "(no config folder)".into())
+}
+
 pub fn storage_set(key: &str, value: &str) {
     if let Some(p) = key_path(key) {
         let tmp = p.with_extension("json.tmp");
@@ -172,7 +179,7 @@ pub fn save_file(filename: &str, text: &str) {
     tokio::spawn(async move {
         if let Some(f) = rfd::AsyncFileDialog::new()
             .set_file_name(&filename)
-            .add_filter("Layout", &["json"])
+            .add_filter("JSON", &["json"])
             .save_file()
             .await
         {
@@ -184,7 +191,7 @@ pub fn save_file(filename: &str, text: &str) {
 /// Pick a JSON file with a native "Open" dialog and return its text.
 pub async fn open_file() -> Option<String> {
     let f = rfd::AsyncFileDialog::new()
-        .add_filter("Layout", &["json"])
+        .add_filter("JSON", &["json"])
         .pick_file()
         .await?;
     String::from_utf8(f.read().await).ok()

@@ -113,7 +113,8 @@ fn App() -> Element {
         platform::register_service_worker();
         let s = settings.peek().clone();
         platform::apply_theme(s.theme);
-        if s.auto_connect {
+        // The simulator always waits for a click on Connect.
+        if s.auto_connect && s.conn != storage::ConnKind::Simulator {
             bus.connect(&s, true);
         }
     });

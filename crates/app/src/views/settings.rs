@@ -5,7 +5,10 @@ use rolcb::NodeId;
 
 use crate::bus::{Bus, ConnStatus};
 use crate::platform;
-use crate::storage::{save_settings, ConnKind, Settings, ThemePref};
+use crate::storage::{
+    save_settings, settings_from_json, settings_json, settings_location, ConnKind, Settings,
+    ThemePref,
+};
 use crate::views::panel::Monitor;
 
 #[component]
@@ -14,6 +17,7 @@ pub fn SettingsView() -> Element {
     let mut settings = use_context::<Signal<Settings>>();
     let mut form = use_signal(|| settings.read().clone());
     let mut node_err = use_signal(|| None::<String>);
+    let mut file_msg = use_signal(|| None::<String>);
     let mut ports = use_signal(platform::serial_ports);
     let conn = bus.conn.read().clone();
     let (alias, node, dup) = bus.view(|d| (d.alias(), d.node_id(), d.duplicate_node_id()));
@@ -125,6 +129,7 @@ pub fn SettingsView() -> Element {
                     input { r#type: "checkbox", checked: f.auto_connect, onchange: move |e| form.write().auto_connect = e.checked() }
                     "Connect automatically when the app opens"
                 }
+                p { class: "muted small", "The simulator never connects by itself; press Connect to start it." }
             }
 
             section { class: "card",
@@ -177,6 +182,34 @@ pub fn SettingsView() -> Element {
                     ConnStatus::Error(e) => rsx! { span { class: "warn", "{e}" } },
                     _ => rsx! {},
                 }
+            }
+
+            section { class: "card",
+                h3 { "Settings file" }
+                p { class: "muted small",
+                    "Saved settings are loaded every time the app opens. The track layout and open throttles are not part of them. "
+                    "Kept in " code { "{settings_location()}" } "."
+                }
+                div { class: "buttons",
+                    button {
+                        onclick: move |_| platform::save_file("system4dispatch-settings.json", &settings_json(&settings.read())),
+                        "Export settings…"
+                    }
+                    button {
+                        onclick: move |_| async move {
+                            let Some(text) = platform::open_file().await else { return };
+                            match settings_from_json(&text) {
+                                Ok(s) => {
+                                    form.set(s);
+                                    file_msg.set(Some("Imported. Press Save settings to use them.".into()));
+                                }
+                                Err(e) => file_msg.set(Some(format!("That file isn't a settings file: {e}"))),
+                            }
+                        },
+                        "Import settings…"
+                    }
+                }
+                if let Some(m) = file_msg() { p { class: "muted small", "{m}" } }
             }
 
             Monitor {}
