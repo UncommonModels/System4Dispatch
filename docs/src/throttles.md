@@ -1,6 +1,6 @@
 # Throttles
 
-The **Throttles** tab runs locomotives through an LCC command station, using the OpenLCB **Traction** protocol. You can open as many throttles as you like, and they keep running while you switch to other tabs.
+A **Throttle** window runs one locomotive through an LCC command station, using the OpenLCB **Traction** protocol. Press **+ Throttle** in the dock to open one. Open as many as you like, one per locomotive; each gets its own button in the dock, labelled with its address. Throttles keep running while other windows are in front, or while they are minimised.
 
 ## What you need
 
@@ -11,17 +11,19 @@ Some command stations only answer for locomotives in their roster. If acquiring 
 
 ## Acquiring a locomotive
 
+A new throttle window shows a short form:
+
 1. Type the locomotive's **DCC address** (1 to 10239).
 2. Tick **Long address** if the locomotive uses a long (four-digit-style) address below 128, for example long address 0042. Addresses of 128 and above are always long, whether or not the box is ticked.
 3. Press **Acquire** (or Enter).
 
-A throttle card appears, headed by the address (with a small **L** for long addresses) and a status:
+The window becomes a throttle, headed by the address (with a small **L** for long addresses) and a status. The window's title shows the address too. If another throttle window already has that locomotive, that window comes to the front instead.
 
 | Status | What's happening |
 |---|---|
 | *Searching…* | The panel has asked the bus "who is DCC address 3?". The command station creates a train for that address if it doesn't have one yet, and answers. |
 | *Taking control…* | The panel has found the train and asked to become its controller. |
-| *In control* | You're driving. The card reads the locomotive's current speed, direction and F0 to F4 from the command station, so it starts out matching the train. |
+| *In control* | You're driving. The throttle reads the locomotive's current speed, direction and F0 to F4 from the command station, so it starts out matching the train. |
 | *no train found for address 3* | Nothing answered within 5 seconds. |
 | *train did not respond* | The train was found but didn't answer the request for control within 3 seconds. |
 | *train is controlled by another throttle* | Someone else has it. Release it on that throttle first. |
@@ -29,7 +31,7 @@ A throttle card appears, headed by the address (with a small **L** for long addr
 | *connection lost* | The connection dropped while the throttle was open. |
 | *not connected* | The panel wasn't Online when you pressed Acquire. |
 
-When a throttle has failed, a **Retry** button appears on its card. Press it (once the panel is Online) to search again.
+When a throttle has failed, a **Retry** button appears on it. Press it (once the panel is Online) to search again.
 
 ## Driving
 
@@ -39,7 +41,7 @@ When a throttle has failed, a **Retry** button appears on its card. Press it (on
 - **EMERGENCY STOP** stops this locomotive immediately (DCC emergency stop, ignoring deceleration) and moves the slider to 0.
 - **F0 to F28** toggle the decoder functions: headlight (F0, marked 💡), bell, horn, sound and so on, depending on the decoder. A lit button means the function is on. Every function is a simple on/off toggle; for a momentary function like a horn, press once to turn it on and again to turn it off.
 
-All controls are disabled unless the card says *In control*.
+All controls are disabled unless the throttle says *In control*.
 
 **STOP ALL** in the top bar sends an emergency stop to every locomotive this panel is controlling.
 
@@ -49,7 +51,7 @@ The slider has 126 steps, matching the 128-speed-step mode of DCC (0 is stop, pl
 
 ## Releasing a locomotive
 
-Press **✕** in the corner of the card. The panel tells the train it is no longer its controller and closes the card. The locomotive keeps doing whatever it was doing (it does **not** stop), so stop it first if that's what you want. Another throttle (a handheld, JMRI, another panel) can now acquire it.
+Close the throttle window (**✕** in its title bar), or press **✕** in the corner of the throttle itself. The panel tells the train it is no longer its controller. Closing the window closes the throttle; the throttle's own **✕** keeps the window open and goes back to the address form, ready for another locomotive. The locomotive keeps doing whatever it was doing (it does **not** stop), so stop it first if that's what you want. Another throttle (a handheld, JMRI, another panel) can now acquire it.
 
 ## Keep-alive
 

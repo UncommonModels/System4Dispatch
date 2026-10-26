@@ -1,12 +1,12 @@
 # The dispatch panel
 
-The **Panel** tab is the dispatcher's view of the railroad: the track diagram on the left (or on top, on a narrow screen), and lists of turnouts and blocks beside it.
+The **Panel** window is the dispatcher's view of the railroad: the track diagram on the left (or on top, in a narrow window), and lists of turnouts and blocks beside it. It is the window the app opens with. If you close it, press **Panel** in the dock to open it again.
 
-If the layout has no track yet, the panel says so and points you to the Editor. If the panel isn't Online, a banner across the diagram says "Not connected. Turnouts can't be thrown and states may be stale."
+If the layout has no track yet, the panel says so and points you to the Editor in the dock. If the panel isn't Online, a banner across the diagram says "Not connected. Turnouts can't be thrown and states may be stale."
 
 ## Zooming and scrolling
 
-The diagram starts fitted to the height of the window, so every row of the layout is in view; a long layout scrolls sideways. Use **+** and **−** in its top-right corner, or **Ctrl+wheel** (a pinch on a trackpad), to zoom; **Fit** goes back to fitting the height. **Drag** the diagram (or use the scroll bars, or swipe on a touch screen) to move around. A drag never throws a turnout; only a click does.
+The diagram starts fitted to the height of the window, so every row of the layout is in view; a long layout scrolls sideways. Use **+** and **−** in its top-right corner, or **Ctrl+wheel** (a pinch on a trackpad), to zoom; **Fit** goes back to fitting the height. **⟳** asks the layout again for every block's occupancy and every turnout's position (see [How the panel knows](#how-the-panel-knows)). **Drag** the diagram (or use the scroll bars, or swipe on a touch screen) to move around. A drag never throws a turnout; only a click does.
 
 ## Track colours
 
@@ -23,7 +23,7 @@ The block list next to the diagram shows the same thing as a coloured dot beside
 
 ### How the panel knows
 
-A block has up to two events: one its detector sends when the block becomes **occupied**, and one it sends when it becomes **clear**. The panel listens for both. It also asks the detectors for the current state as soon as it comes Online, so blocks normally show their real state within a moment of connecting, rather than staying grey until a train moves.
+A block has up to two events: one its detector sends when the block becomes **occupied**, and one it sends when it becomes **clear**. The panel listens for both. It also asks the detectors for the current state as soon as it comes Online, so blocks normally show their real state within a moment of connecting, rather than staying grey until a train moves. Nodes that are still starting up can miss that first question, so the panel asks again about anything still unknown 3 seconds later, and once more 3 seconds after that. Press **⟳** in the diagram's top-right corner to ask about everything again at any time.
 
 Enter both events whenever your detector has them. The startup query can work with just one: if a detector answers that the *occupied* event is currently **not** true, the panel shows the block as clear (and the other way round for the *clear* event). But live changes only arrive as event reports, so with only an *occupied* event configured, a block turns red when a train arrives and then stays red until the next time the panel connects.
 
@@ -63,7 +63,9 @@ If a turnout keeps blinking, the command went out but no confirmation came back:
 
 **Without feedback:**
 
-The panel has no way to know where the points really are, so it shows the **last command seen on the bus**. That includes commands from this panel, from other panels and JMRI, and from fascia buttons that send the same events. When it first connects, the panel also asks the turnout drivers which position they last commanded, so it can show that instead of *?*.
+The panel has no way to know where the points really are, so it shows the **last command seen on the bus**. That includes commands from this panel, from other panels and JMRI, and from fascia buttons that send the same events. When it first connects, the panel also asks the turnout drivers which position they last commanded, and asks other panels and JMRI which position they last sent, so it can show that instead of *?*.
+
+A turnout **with** feedback also gets a starting position this way while its sensors haven't answered yet. As soon as a feedback event arrives, it takes over.
 
 ### Linked turnouts
 
@@ -95,7 +97,9 @@ An arrow with a name marks a track that leaves here and carries on at the other 
 
 ## The bus monitor
 
-Tick **Show bus monitor on the panel** in Settings to add a *Bus monitor* box under the lists. It shows the last 80 messages, newest at the top, decoded into readable form:
+Press **Monitor** in the dock to open the bus monitor in a window of its own. The panel only logs bus messages while the Monitor window is open (or the setting below is on), so open it before you trigger whatever you want to watch. To keep the monitor in the Panel window instead, tick **Show bus monitor on the panel** in Settings: a *Bus monitor* box appears under the lists.
+
+The monitor shows the last 80 messages, newest at the top, decoded into readable form:
 
 ```text
 ← 3F2 Pcer(EventId(05.01.01.01.22.00.00.12))
@@ -107,4 +111,4 @@ Lines starting with **→** were sent by this panel; lines starting with **←**
 
 ## STOP ALL
 
-Whenever at least one throttle is open, a red **STOP ALL** button appears in the top bar on every tab. It sends an emergency stop to every train this panel is running. It does not affect trains run by other throttles.
+Whenever at least one throttle is open, a red **STOP ALL** button appears in the top bar, whichever window is in front. It sends an emergency stop to every train this panel is running. It does not affect trains run by other throttles.

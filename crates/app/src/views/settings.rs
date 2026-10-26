@@ -160,8 +160,8 @@ pub fn SettingsView() -> Element {
             section { class: "card",
                 h3 { "Settings file" }
                 p { class: "muted small",
-                    "Settings and the track layout are saved as you change them and loaded every time the app opens: settings in "
-                    code { "{settings_path}" } ", the layout in " code { "{layout_path}" } "."
+                    "Settings are saved when you press Save settings, and the track layout when you press Apply & save in the editor. Both are loaded every time the app opens: settings from "
+                    code { "{settings_path}" } ", the layout from " code { "{layout_path}" } "."
                 }
                 p { class: "muted small",
                     "Export puts both in one file; importing that file replaces your settings and layout. "

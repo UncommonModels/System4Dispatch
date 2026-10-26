@@ -9,6 +9,7 @@
 - [Connecting to your layout](connecting.md)
 - [The dispatch panel](panel.md)
 - [Throttles](throttles.md)
+- [Configuring LCC nodes](configuring-nodes.md)
 - [The layout editor](editor.md)
 - [Settings](settings.md)
 

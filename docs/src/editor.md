@@ -1,8 +1,8 @@
 # The layout editor
 
-The **Editor** tab is where you draw your panel and tell it which LCC events belong to each block and turnout. A layout is a grid of square **tiles**. Each track tile has a shape and a rotation, and can belong to a **block** (a detection section) and, for turnout shapes, a **turnout**.
+The **Editor** window (press **Editor** in the dock) is where you draw your panel and tell it which LCC events belong to each block and turnout. A layout is a grid of square **tiles**. Each track tile has a shape and a rotation, and can belong to a **block** (a detection section) and, for turnout shapes, a **turnout**.
 
-The screen has four parts:
+The window has four parts:
 
 - the **toolbar** at the top: the tools and track pieces, rotation, the block to paint with, and display options;
 - the **grid** in the middle;
@@ -15,7 +15,7 @@ Everything you change in the editor goes into a **draft**. The panel, the simula
 
 **Revert** throws the draft away and goes back to the live layout. Both buttons are greyed out when there are no unapplied changes.
 
-The draft survives switching tabs, so you can flip to the panel and back, but it is not saved anywhere until you apply it. Reloading the page or closing the app loses unapplied changes.
+The draft survives closing and reopening the Editor window, so you can close it, look at the panel, and come back, but it is not saved anywhere until you apply it. Reloading the page or closing the app loses unapplied changes, and so does importing a settings file (see [Settings file](settings.md#settings-file)).
 
 If you're using the simulator, applying rebuilds it around the new layout, with every block clear and every turnout normal.
 
@@ -208,7 +208,7 @@ The canvas scrolls like any page. **Ctrl+wheel** (or a trackpad pinch) zooms abo
 
 ### Moving tiles
 
-Whenever something is selected, a **Move** box appears with **↑ ← → ↓** buttons that shift the selection one cell at a time. You can also use the **arrow keys**, and **Delete** or **Backspace** to delete the selection. Keyboard shortcuts work when the grid has keyboard focus: click on the grid first.
+Whenever something is selected, a **Move** box appears with **↑ ← → ↓** buttons that shift the selection one cell at a time. You can also use the **arrow keys**, and **Delete** or **Backspace** to delete the selection. Keyboard shortcuts work when the grid has keyboard focus and the Editor window is in front: click on the grid first.
 
 A move is refused, with the message "Can't move there: tiles would leave the grid or overlap other track", if any tile would go off the grid or land on a tile that isn't part of the selection.
 

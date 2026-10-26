@@ -6,6 +6,8 @@ A **dispatch panel and throttle** for model railroads running **OpenLCB / LCC**.
 - **Throws turnouts** with a tap, and shows feedback from the points when you have it.
 - **Throttles**: acquire any DCC address through an LCC command station (Traction protocol). You get speed, direction, F0–F28 and emergency stop.
 - **Layout editor**: paint track, assign blocks and turnouts, and enter event IDs. Every block gets its own colour and name tag. You can select many tiles at once (drag a box or shift-click) and link turnouts such as crossover ends so they always throw together. You can also *learn* an event ID by pressing a button on the layout.
+- **Node configuration**: list the LCC nodes on the bus and read and change their settings from their CDI, like JMRI's *Configure Nodes*.
+- A **windowed desktop**: the panel, any number of throttles, node configuration, the editor and the bus monitor each open in their own window, from a dock along the bottom.
 - A **built-in simulator**, so you can try everything without hardware.
 - Written in Rust with [Dioxus](https://dioxuslabs.com): the same app compiles to WebAssembly for the browser and to a native desktop app. The OpenLCB stack is [`rolcb`](https://github.com/UncommonModels/rolcb).
 
@@ -17,9 +19,11 @@ All connections speak **GridConnect**, the text form of LCC's CAN frames.
 
 | Connection | Web app | Desktop app |
 |---|---|---|
-| **USB adapter** (RR-CirKits LCC Buffer-USB, TCS, SPROG CANISB…) | ✓ via Web Serial (Chrome or Edge on a desktop computer) | ✓ pick the port in Settings |
-| **GridConnect TCP**: JMRI's LCC hub, an Ethernet LCC buffer, `rolcb-hub` (port 12021) | — (browsers can't open TCP sockets) | ✓ |
-| **Simulator** | ✓ (default) | ✓ |
+| **USB adapter** (RR-CirKits LCC Buffer-USB, TCS, SPROG CANISB…) | ✓ (default) via Web Serial (Chrome or Edge on a desktop computer) | ✓ pick the port in Settings |
+| **GridConnect TCP**: JMRI's LCC hub, an Ethernet LCC buffer, `rolcb-hub` (port 12021) | — (browsers can't open TCP sockets) | ✓ (default) |
+| **Simulator** | ✓ | ✓ |
+
+The app doesn't connect until you press **Connect**, unless you tick *Connect automatically when the app opens* in Settings. The simulator always waits for a click. To try the demo, choose **Simulator** in Settings, press **Save settings**, then **Connect**.
 
 - **Web app:** https://www.uncommonmodels.com/System4Dispatch/. You can also install it as a PWA so it works offline.
 - **Desktop app:** download from the [releases page](https://github.com/UncommonModels/System4Dispatch/releases):
@@ -70,10 +74,10 @@ A layout is a JSON file: a grid of track tiles, plus the blocks and turnouts the
 ```
 
 - **Shapes:** `straight`, `curve`, `bumper`, `crossing`, `crossing_diag`, `turnout_left`, `turnout_right`, `wye`. `rot` turns the tile clockwise in 45° steps (0–7).
-- **Blocks:** the panel sends *Identify Producer* for each event at startup, so it learns the current state straight away. *Producer Identified Valid/Invalid* and *PCER*s keep it up to date.
+- **Blocks:** the panel sends *Identify Producer* for each event when it connects (and asks again 3 s and 6 s later about anything still unknown), so it learns the current state straight away. *Producer Identified Valid/Invalid* and *PCER*s keep it up to date.
 - **Turnouts:** tapping sends the throw event as a PCER. With feedback events, the turnout blinks until the points report back. Without feedback, it shows the last command seen on the bus. `linked` names a second turnout that is always thrown with this one (both sides name each other); `"linked_inverted": true` sends it to the opposite position.
 
-Layouts are saved in the browser (web) or your config folder (desktop), and can be exported and imported as files.
+Layouts are saved in the browser (web) or your config folder (desktop), and can be exported and imported as files. **Export settings…** in Settings writes one file with your settings and the layout together.
 
 ## Building
 
@@ -95,8 +99,8 @@ On Linux the desktop build needs WebKitGTK and friends. On Fedora: `sudo dnf ins
 Repository layout:
 
 ```
-crates/core   layout model, Dispatcher (OpenLCB state machine), Simulator; host-testable
-crates/app    the Dioxus app; src/platform/{web,desktop}.rs hold the per-platform links and storage
+crates/core   layout model, Dispatcher (OpenLCB state machine), CDI parser and node configuration client, Simulator; host-testable
+crates/app    the Dioxus app; src/desktop.rs is the window manager and dock, src/platform/{web,desktop}.rs hold the per-platform links and storage
 ```
 
 GitHub Actions run the tests, publish the web app and the docs to GitHub Pages, attach installers for every platform (plus a Flatpak and a self-hostable web app) to tagged releases, and publish a nightly testing pre-release (tag `nightly`) for every platform at 5am US Eastern. Build the Flatpak locally with the commands at the top of [`packaging/flatpak/com.uncommonmodels.System4Dispatch.yml`](packaging/flatpak/com.uncommonmodels.System4Dispatch.yml).

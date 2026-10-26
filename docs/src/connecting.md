@@ -2,13 +2,13 @@
 
 Every connection System4Dispatch offers carries **GridConnect**: a plain-text form of the CAN frames that make up an LCC bus, one frame per line, like `:X19490ABCN;`. Almost every LCC USB adapter and every LCC network hub speaks it, so the app doesn't need device-specific drivers.
 
-Choose the connection under **Settings → Connection**, press **Save settings**, then press **Connect** in the top bar. If *Connect automatically when the app opens* is ticked (it is by default), the app reconnects by itself the next time you open it.
+Choose the connection under **Settings → Connection**, press **Save settings**, then press **Connect** in the top bar. The app never connects on its own the first time you open it. If you tick *Connect automatically when the app opens* (it is off by default), it connects by itself the next time you open it. That never applies to the simulator: it always waits for you to press **Connect**.
 
 | Connection | Web app | Desktop app |
 |---|---|---|
-| **Simulator** | yes (default) | yes (default) |
-| **USB serial (GridConnect)** | yes, via Web Serial in Chrome or Edge on a desktop computer | yes, native serial port |
-| **Network (GridConnect TCP)** | not offered | yes |
+| **Simulator** | yes | yes |
+| **USB serial (GridConnect)** | yes (default), via Web Serial in Chrome or Edge on a desktop computer | yes, native serial port |
+| **Network (GridConnect TCP)** | not offered | yes (default) |
 
 ## USB adapters
 

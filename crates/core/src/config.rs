@@ -292,9 +292,14 @@ impl NodeConfig {
         }
     }
 
+    /// Ask every node to identify itself, and the nodes we know to send
+    /// their names again (they may have been renamed).
     pub(crate) fn discover(&mut self) {
         self.outbox
             .push(Message::VerifyNodeIdGlobal { node_id: None });
+        for n in self.nodes.values().filter(|n| n.alias != 0) {
+            self.outbox.push(Message::SnipRequest { dest: n.alias });
+        }
     }
 
     /// A node announced itself or answered Verify Node ID.
@@ -535,6 +540,10 @@ impl NodeConfig {
             let d = self.data.entry(c.op.node).or_default();
             for (i, b) in data.iter().enumerate() {
                 d.memory.insert((*space, addr + i as u32), *b);
+            }
+            // The name or description changed: fetch what SNIP now says.
+            if *space == crate::cdi::SPACE_ACDI_USER {
+                self.outbox.push(Message::SnipRequest { dest: c.alias });
             }
         }
         self.start_next(now);

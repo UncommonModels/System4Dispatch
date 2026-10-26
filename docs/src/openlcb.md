@@ -8,7 +8,7 @@ The protocol work is done by the [rolcb](https://github.com/UncommonModels/rolcb
 
 Everything on an LCC bus is a **node**: a detector board, a turnout controller, a command station, JMRI, and each running copy of System4Dispatch. Every node has a unique 48-bit **Node ID**, such as `05.01.01.01.8D.42`.
 
-System4Dispatch is one node. It identifies itself (in OpenLCB's *Simple Node Information*) with manufacturer "Uncommon Models", model "System4Dispatch" and the app version, so it shows up by name in tools like JMRI's *LCC Configure Nodes*.
+System4Dispatch is one node. It identifies itself (in OpenLCB's *Simple Node Information*) with manufacturer "Uncommon Models", model "System4Dispatch" and the app version, so it shows up by name in tools like JMRI's *LCC Configure Nodes*. When asked which protocols it supports (*Protocol Support Inquiry*), it answers Event Exchange, Simple Node Information and Datagram.
 
 ## Events, producers and consumers
 
@@ -44,10 +44,14 @@ A PCER only says that something *changed*. If the panel waited for changes, ever
 - **Identify Producer** *event*: "who produces this event, and is its condition currently true?" Each producer answers **Producer Identified** with a state: *Valid* (true now), *Invalid* (false now) or *Unknown*.
 - **Identify Consumer** *event*: the same question for consumers, answered with **Consumer Identified**.
 
-As soon as the panel is logged in (and again whenever a new layout is applied), it sends:
+As soon as the panel is logged in (and again whenever a new layout is applied, or you press **⟳** on the panel), it sends:
 
-1. **Identify Producer** for every block event and every feedback event. A detector answers *Valid* for `occupied_event` if the block is occupied right now, and *Invalid* if not, and the opposite for `clear_event`. Point sensors answer the same way for their feedback events.
-2. **Identify Consumer** for the throw events of every turnout **without** feedback. Many turnout drivers report the last command they acted on as *Consumer Identified Valid*, which gives the panel a starting position even without sensors.
+1. **Identify Producer** for every block occupied and clear event, every turnout feedback event, every turnout throw event, and every turntable track's *arrived* event. A detector answers *Valid* for `occupied_event` if the block is occupied right now, and *Invalid* if not, and the opposite for `clear_event`. Point sensors answer the same way for their feedback events. Other panels and JMRI answer for the throw events they produce, saying which position they last sent.
+2. **Identify Consumer** for every turnout throw event. Many turnout drivers report the last command they acted on as *Consumer Identified Valid*, which gives the panel a starting position even without sensors.
+
+For a turnout **without** feedback, a *Valid* answer on a throw event sets its position. For a turnout **with** feedback, it only sets the position while it is still unknown; when the feedback sensors answer, or report a change, they take over.
+
+Nodes that are still starting up (after a power-on, say) miss the first round. So 3 seconds later the panel asks again about every block, turnout and turntable that is still unknown, and once more 3 seconds after that.
 
 The panel also answers these questions itself. When it logs in, it announces itself as a consumer of its block and feedback events and a producer of its throw events. After each throw it updates its own producer state (the event it just sent becomes *Valid* and the opposite one *Invalid*), so other panels that ask get the right answer.
 
@@ -64,6 +68,38 @@ The panel also answers these questions itself. When it logs in, it announces its
        │                 … later …                  │
        │  PCER 05.01.01.01.22.00.00.11              │   block 1 just cleared
        │ ◄───────────────────────────────────────── │
+```
+
+## Node configuration
+
+The [Nodes and Configure windows](configuring-nodes.md) use three more parts of OpenLCB.
+
+**Finding nodes.** When it logs in, the panel sends a global **Verify Node ID**. Every node answers **Verified Node ID**, and the panel asks each for its **Simple Node Information** (manufacturer, model, versions, user name) and its **Protocol Support**. Nodes that log in later announce themselves with Initialization Complete, and the panel asks them the same. A node that says it supports the *CDI* protocol can be configured. **⟳ Refresh** sends Verify Node ID again.
+
+**Datagrams.** Configuration requests travel as *datagrams*: addressed messages of up to 72 bytes, split over several CAN frames. The receiver answers every datagram with **Datagram Received OK** or **Datagram Rejected**. The panel acknowledges every datagram addressed to it. If a node rejects one of the panel's datagrams with a "try again" code (it was busy), the panel sends it again, up to 3 times.
+
+**Memory Configuration.** A node's settings live in numbered *memory spaces*. The panel uses three:
+
+| Space | Holds |
+|---|---|
+| `FF` | The CDI: an XML document describing the other spaces. |
+| `FD` | The node's configuration. |
+| `FB` | User info (name and description), for nodes whose CDI has `<acdi/>`. |
+
+Each request is a datagram to the node: *read* (space, address, how many bytes, at most 64) or *write* (space, address, data). The node acknowledges it, then sends a reply datagram with the data or an error code. The panel waits 3 seconds for the acknowledgement. For the reply, it waits as long as the node said it would need (the *reply pending* flag in its Datagram Received OK), or 3 seconds if it didn't say.
+
+The panel keeps **one request in flight** at a time and queues the rest, so a slow node is never flooded. The CDI is read 64 bytes at a time from space `FF` until the end of the document. After every write, the panel sends **Update Complete**, which tells the node to act on its new settings. **Restart node** sends **Reset/Reboot**.
+
+```text
+  System4Dispatch                         Node
+       │  Datagram: read FD @ 0, 64 bytes   │
+       │ ─────────────────────────────────► │
+       │  Datagram Received OK (reply pending)
+       │ ◄───────────────────────────────── │
+       │  Datagram: read reply FD @ 0, data │
+       │ ◄───────────────────────────────── │
+       │  Datagram Received OK              │
+       │ ─────────────────────────────────► │
 ```
 
 ## CAN aliases and logging in
@@ -176,11 +212,14 @@ Some message types you'll meet:
 | `544` / `545` / `547` | Producer Identified Valid / Invalid / Unknown |
 | `8F4` | Identify Consumer |
 | `4C4` / `4C5` / `4C7` | Consumer Identified Valid / Invalid / Unknown |
+| `490` | Verify Node ID (global) |
+| `170` | Verified Node ID |
+| `A28` / `A48` | Datagram Received OK / Datagram Rejected |
 | `5EB` | Traction Control Command |
 | `1E9` | Traction Control Reply |
 | `068` | Optional Interaction Rejected |
 
-Login frames (CID, RID, AMD, AMR) are *control frames* with a different identifier layout; for example the AMD for alias `285` and Node ID `05.01.01.01.22.00` is `:X10701285N050101012200;`. *Addressed* messages, such as traction commands, start their data with the destination alias, and longer ones are split over several frames.
+Login frames (CID, RID, AMD, AMR) are *control frames* with a different identifier layout; for example the AMD for alias `285` and Node ID `05.01.01.01.22.00` is `:X10701285N050101012200;`. *Addressed* messages, such as traction commands, start their data with the destination alias, and longer ones are split over several frames. Datagrams use their own frame types instead (identifiers starting `1A` to `1D`), with the destination alias in the identifier.
 
 System4Dispatch writes frames one per line. When reading, it accepts any mix of line endings, and frames split across reads. The same text format is used over USB serial and over TCP, which is why one implementation covers USB adapters, JMRI, Ethernet buffers and `rolcb-hub` alike.
 

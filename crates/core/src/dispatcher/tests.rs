@@ -789,9 +789,7 @@ fn reads_cdi_and_values_and_writes_them() {
     b.run(1_000);
     assert_eq!(b.d.config.data[&SIM_NODE].error, None);
     assert_eq!(b.d.config.busy_total(), 0);
-    b.d.config.nodes.get_mut(&SIM_NODE).unwrap().info = None;
-    b.d.discover_nodes();
-    b.run(500);
+    // The new name is fetched after the write.
     assert_eq!(b.d.config.nodes[&SIM_NODE].label(SIM_NODE), "Hilltown IO");
 
     // A live setting: a slower turnout.

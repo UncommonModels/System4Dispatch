@@ -1,8 +1,12 @@
 # Troubleshooting and FAQ
 
-When something isn't working, turn on **Show bus monitor on the panel** in Settings. Seeing what actually goes over the bus answers most questions quickly. Lines starting with → are sent by the panel; lines starting with ← are received, with the sender's alias.
+When something isn't working, press **Monitor** in the dock to open the bus monitor. Seeing what actually goes over the bus answers most questions quickly. Lines starting with → are sent by the panel; lines starting with ← are received, with the sender's alias.
 
 ## Connecting
+
+### The app doesn't connect when it opens
+
+A new install doesn't connect until you press **Connect**. Tick *Connect automatically when the app opens* in Settings to have it connect by itself. The simulator never connects by itself, even with that ticked.
 
 ### The status pill says *Error*
 
@@ -40,7 +44,7 @@ Two nodes (two copies of System4Dispatch, or one and a device) have the same Nod
 
 ### All blocks show *Unknown* (grey)
 
-Nothing answered for those events. Check that:
+Nothing answered for those events. The panel asks twice more in the first few seconds after connecting, for nodes that were still starting up. If a node powered up later than that, press **⟳** in the diagram's top-right corner to ask again. Otherwise, check that:
 
 - the panel is **Online**;
 - the block's event IDs match the detector's configuration exactly (compare them in JMRI's *LCC Configure Nodes*, or [learn them](editor.md#learning-event-ids-from-the-bus));
@@ -87,7 +91,7 @@ The command station found the train but didn't accept control, or doesn't suppor
 
 ### The throttle says "connection lost"
 
-The connection dropped while the throttle was open. Once the panel is back **Online**, press **Retry** on the card.
+The connection dropped while the throttle was open. Once the panel is back **Online**, press **Retry** on the throttle.
 
 ### The locomotive stopped on its own
 
@@ -97,11 +101,11 @@ If the panel stops answering heartbeat requests (the computer went to sleep, the
 
 ### My changes disappeared
 
-Editor changes are a draft until you press **Apply & save**. Reloading the page or closing the app throws the draft away. Switching tabs keeps it.
+Editor changes are a draft until you press **Apply & save**. Reloading the page, closing the app or importing a settings file throws the draft away. Closing and reopening the Editor window keeps it.
 
 ### The arrow keys or Delete don't do anything
 
-Keyboard shortcuts work when the grid has focus. Click on the grid first.
+Keyboard shortcuts work when the grid has focus and the Editor window is in front. Click on the grid first.
 
 ### "Can't move there"
 
@@ -111,11 +115,29 @@ A move is refused if any selected tile would go off the grid or land on a tile t
 
 Colours are assigned by position in the Blocks table, so deleting a block shifts the colours of those after it. They're only an editing aid; the panel always uses occupancy colours.
 
+## Configuring nodes
+
+### Configure is greyed out
+
+That node doesn't offer a configuration description (CDI). Trains and some simple nodes don't have one.
+
+### A node is missing from the Nodes list
+
+The list fills in as nodes answer when the panel connects, and as they announce themselves. Press **⟳ Refresh** to ask again. A node that is powered off or on another bus segment won't appear.
+
+### "did not acknowledge" or "did not reply in time"
+
+The node didn't answer a configuration request within 3 seconds. Check it is still on the bus (it shows in the Nodes list), then press **⟳** beside the field or **Read all** to try again. See [Configuring LCC nodes](configuring-nodes.md#when-something-goes-wrong).
+
 ## General questions
 
 ### Where is my layout saved?
 
-In the browser's local storage (web app) or in the `System4Dispatch` folder inside your system's configuration directory (desktop). See [Where things are saved](settings.md#where-things-are-saved). Use **Save to disk…** to keep a copy or move it to another computer.
+In the browser's local storage (web app) or in the `System4Dispatch` folder inside your system's configuration directory (desktop). See [Where things are saved](settings.md#where-things-are-saved). Use **Export settings…** in Settings to keep a copy of your settings and layout together, or **Save to disk…** in the editor for just the layout.
+
+### Where did the tabs go?
+
+The app now uses windows instead of tabs. Every view that used to be a tab has a button in the dock along the bottom. Throttles each get their own window: press **+ Throttle**.
 
 ### Can several people run panels at once?
 
@@ -127,11 +149,11 @@ The web app keeps a copy of itself in the browser after the first visit, so it o
 
 ### Does it work on a phone or tablet?
 
-The panel, throttles and editor all work with touch screens; the layout adapts to narrow screens, and the editor has **⊕ Multi** for selecting several tiles without a Shift key. But mobile browsers don't support Web Serial, so a phone or tablet can only use the simulator. For real hardware, use a desktop or laptop computer.
+The panel, throttles and editor all work with touch screens. On a narrow screen the front window fills the screen and the dock switches between windows, and the editor has **⊕ Multi** for selecting several tiles without a Shift key. But mobile browsers don't support Web Serial, so a phone or tablet can only use the simulator. For real hardware, use a desktop or laptop computer.
 
 ### Does it support signals, routes, or block detection by transponder?
 
-Not yet. System4Dispatch currently handles block occupancy, turnouts (with optional feedback and linking) and throttles.
+Not yet. System4Dispatch currently handles block occupancy, turnouts (with optional feedback and linking), turntables, throttles and node configuration.
 
 ### Where can I get the latest development build?
 
