@@ -2325,6 +2325,97 @@ impl Layout {
         turnout
     }
 
+    /// Give a new piece of track the block it's laid in. Starting from the
+    /// plain track tile (straight or curve, with no block) at (x, y), follow
+    /// the line both ways through other plain tiles with no block. If both
+    /// ends run into track in the same block, every tile of the line joins
+    /// that block, which is returned. Otherwise (an end that's free, a
+    /// switch with no block, or two different blocks) nothing changes.
+    ///
+    /// ```
+    /// use s4d_core::{Block, Element, Layout, Shape};
+    ///
+    /// let mut l = Layout::empty("t");
+    /// l.blocks.push(Block { id: "B1".into(), ..Default::default() });
+    /// l.place_track(1, 1, Shape::Straight, 0, Some("B1".into()));
+    /// l.place_track(4, 1, Shape::Straight, 0, Some("B1".into()));
+    /// l.place_track(2, 1, Shape::Straight, 0, None);
+    /// assert_eq!(l.adopt_block(2, 1), None); // E end is still free
+    /// l.place_track(3, 1, Shape::Straight, 0, None);
+    /// assert_eq!(l.adopt_block(3, 1).as_deref(), Some("B1"));
+    /// assert!(matches!(&l.elements[l.element_at(2, 1).unwrap()],
+    ///     Element::Track { block: Some(b), .. } if b == "B1"));
+    /// ```
+    pub fn adopt_block(&mut self, x: u16, y: u16) -> Option<String> {
+        let plain =
+            |l: &Layout, (x, y): (u16, u16)| match l.element_at(x, y).map(|i| &l.elements[i]) {
+                Some(
+                    el @ Element::Track {
+                        shape: Shape::Straight | Shape::Curve,
+                        block: None,
+                        ..
+                    },
+                ) => Some(
+                    track_exits(el, l)
+                        .into_iter()
+                        .map(|(d, _)| d)
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            };
+        let ends = plain(self, (x, y))?;
+        let mut run = vec![(x, y)];
+        let mut found: Vec<String> = Vec::new();
+        for start in ends {
+            // Walk from (x, y) out through `start` until the line reaches
+            // track with a block, or stops.
+            let (mut at, mut dir) = ((x, y), start);
+            let block = loop {
+                let (dx, dy) = dir_step(dir);
+                let (nx, ny) = (at.0 as i32 + dx, at.1 as i32 + dy);
+                if !self.in_grid(nx, ny) {
+                    break None;
+                }
+                let next = (nx as u16, ny as u16);
+                let back = (dir + 4) % 8;
+                let Some(el) = self.element_at(next.0, next.1).map(|i| &self.elements[i]) else {
+                    break None;
+                };
+                let exits = track_exits(el, self);
+                let Some((_, leg_block)) = exits.iter().find(|(d, _)| *d == back) else {
+                    break None;
+                };
+                if let Some(b) = leg_block {
+                    break Some(b.clone());
+                }
+                match plain(self, next) {
+                    Some(e) if !run.contains(&next) => {
+                        run.push(next);
+                        at = next;
+                        dir = match e.into_iter().find(|&d| d != back) {
+                            Some(d) => d,
+                            None => break None,
+                        };
+                    }
+                    _ => break None,
+                }
+            };
+            found.push(block?);
+        }
+        let block = found.first()?.clone();
+        if found.len() != 2 || found.iter().any(|b| *b != block) {
+            return None;
+        }
+        for (cx, cy) in run {
+            if let Some(i) = self.element_at(cx, cy) {
+                if let Element::Track { block: b, .. } = &mut self.elements[i] {
+                    *b = Some(block.clone());
+                }
+            }
+        }
+        Some(block)
+    }
+
     /// Change the shape of the track tile at (x, y), keeping its rotation
     /// and block. Turnouts follow the same rule as
     /// [`place_track`](Layout::place_track): an existing turnout is kept, a
@@ -2835,6 +2926,32 @@ mod tests {
         let done = l.insert_row(2).unwrap();
         assert_eq!((done.joined, done.gaps), (0, vec![(2, 1)]));
         assert!(l.element_at(1, 3).is_some());
+    }
+
+    #[test]
+    fn adopt_block_needs_the_same_block_at_both_ends() {
+        let mut l = Layout::empty("t");
+        for id in ["A", "B"] {
+            l.blocks.push(Block {
+                id: id.into(),
+                ..Default::default()
+            });
+        }
+        // A — . . — B: different blocks, nothing changes.
+        l.place_track(1, 1, Shape::Straight, 0, Some("A".into()));
+        l.place_track(2, 1, Shape::Straight, 0, None);
+        l.place_track(3, 1, Shape::Straight, 0, None);
+        l.place_track(4, 1, Shape::Straight, 0, Some("B".into()));
+        assert_eq!(l.adopt_block(2, 1), None);
+        // A — . / . — A, round a curve: both join A.
+        l.place_track(1, 3, Shape::Straight, 0, Some("A".into()));
+        l.place_track(2, 3, Shape::Curve, 0, None); // W to NE
+        l.place_track(3, 2, Shape::Straight, 3, Some("A".into())); // SW–NE
+        assert_eq!(l.adopt_block(2, 3).as_deref(), Some("A"));
+        // Tiles that already have a block, and switches, are left alone.
+        assert_eq!(l.adopt_block(1, 1), None);
+        l.place_track(6, 5, Shape::TurnoutLeft, 0, None);
+        assert_eq!(l.adopt_block(6, 5), None);
     }
 
     #[test]

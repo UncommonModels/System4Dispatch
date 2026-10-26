@@ -189,6 +189,11 @@ pub fn EditorView() -> Element {
                         let mut l = current(draft, bus);
                         match l.draw_route(start, cell, paint_block()) {
                             Ok(cells) => {
+                                if paint_block().is_none() {
+                                    for &(x, y) in &cells {
+                                        l.adopt_block(x, y);
+                                    }
+                                }
                                 set_draft(draft, bus, l);
                                 selection.set(cells);
                                 route_start.set(None);

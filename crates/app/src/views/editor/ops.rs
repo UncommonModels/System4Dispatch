@@ -114,9 +114,15 @@ pub fn assign_block(l: &mut Layout, sel: &BTreeSet<Cell>, block: Option<&str>) {
     l.assign_block(sel, block);
 }
 
-/// Place a track tile (turnout tiles keep or get a turnout).
+/// Place a track tile (turnout tiles keep or get a turnout). Without a
+/// block of its own, a line that now joins two ends of one block takes that
+/// block.
 pub fn place_track(l: &mut Layout, x: u16, y: u16, shape: Shape, rot: u8, block: Option<String>) {
+    let adopt = block.is_none();
     l.place_track(x, y, shape, rot, block);
+    if adopt {
+        l.adopt_block(x, y);
+    }
 }
 
 /// Change a tile's shape, keeping its rotation and block.

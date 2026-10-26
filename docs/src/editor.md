@@ -114,6 +114,8 @@ There are three ways to put track into a block:
 2. **One tile:** select it and pick the block from the **Block** list in the inspector.
 3. **Many tiles at once:** select them (drag a box, or Shift/Ctrl-click) and pick the block in the inspector. If the selection spans several blocks, the list shows "— mixed —" until you choose.
 
+New track with no block chosen fills in its own block when it can: if a new straight or curve completes a line whose two ends both run into track in the same block, the whole line between them (any plain straights and curves with no block) joins that block. This works for single tiles, dragged runs and Auto track, so closing a gap in a block's line keeps it in that block. If the ends are in different blocks, or one end is free or a switch with no block, the new track stays without a block.
+
 ### Block colours and tags
 
 In the editor, track isn't coloured by occupancy. Instead **every block is drawn in its own colour**, and track that isn't in any block is drawn thin and grey. A small tag with the block's ID sits on the tile nearest the middle of each block. Untick **Block tags** to hide the tags.
