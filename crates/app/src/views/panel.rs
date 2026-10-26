@@ -299,8 +299,73 @@ pub fn MonitorWindow() -> Element {
     let settings = use_context::<Signal<Settings>>();
     use_hook(move || bus.set_monitor(true));
     use_drop(move || bus.set_monitor(settings.peek().show_monitor));
+    // While paused, the lines as they were when Pause was pressed.
+    let mut frozen = use_signal(|| None::<Vec<String>>);
+    let live: Vec<String> = bus.view(|d| d.traffic.iter().cloned().collect());
+    let paused = frozen.read().is_some();
+    let lines = frozen.read().clone().unwrap_or(live);
     rsx! {
-        div { class: "monitor-window", Monitor {} }
+        div { class: "term",
+            div { class: "term-bar",
+                span { class: if paused { "term-state paused" } else { "term-state" },
+                    if paused { "❚❚ paused" } else { "● live" }
+                }
+                span { class: "term-count", "{lines.len()} lines" }
+                button {
+                    onclick: move |_| {
+                        let now = if frozen.peek().is_some() {
+                            None
+                        } else {
+                            Some(bus.view(|d| d.traffic.iter().cloned().collect()))
+                        };
+                        frozen.set(now);
+                    },
+                    if paused { "Resume" } else { "Pause" }
+                }
+                button {
+                    onclick: move |_| {
+                        bus.act(|d, _| {
+                            d.traffic.clear();
+                            d.revision += 1;
+                        });
+                        if frozen.peek().is_some() {
+                            frozen.set(Some(Vec::new()));
+                        }
+                    },
+                    "Clear"
+                }
+            }
+            // A reversed column keeps the newest line in view as lines arrive.
+            div { class: "term-scroll",
+                div { class: "term-lines",
+                    if lines.is_empty() {
+                        div { class: "term-line sys", "Waiting for traffic…" }
+                    }
+                    for (i, l) in lines.iter().enumerate() {
+                        {
+                            let (class, text) = if let Some(t) = l.strip_prefix("→ ") {
+                                ("term-line tx", t)
+                            } else if let Some(t) = l.strip_prefix("← ") {
+                                ("term-line rx", t)
+                            } else {
+                                ("term-line sys", l.as_str())
+                            };
+                            let mark = match class {
+                                "term-line tx" => "→",
+                                "term-line rx" => "←",
+                                _ => "•",
+                            };
+                            rsx! {
+                                div { key: "{i}", class: "{class}",
+                                    span { class: "term-mark", "{mark}" }
+                                    span { "{text}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

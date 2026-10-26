@@ -484,5 +484,29 @@ kbd { font: 12px ui-monospace, Menlo, Consolas, monospace; padding: 1px 5px; bor
   .cdi-field { grid-template-columns: 1fr; }
   .cdi-field > .warn { grid-column: 1; }
 }
-.monitor-window .monitor { margin: 0; }
-.monitor-window .monitor pre { max-height: none; }
+/* Bus monitor window: a terminal, the same in light and dark themes. */
+.term {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  background: #0d1117; color: #c9d1d9; font: 12px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.term-bar {
+  flex: none; display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 12px;
+  background: #161b22; border-bottom: 1px solid #30363d; color: #8b949e;
+}
+.term-state { color: #3fb950; }
+.term-state.paused { color: #d29922; }
+.term-count { flex: 1; }
+.term-bar button {
+  min-height: 0; height: 24px; padding: 0 10px; font: inherit; border-radius: 6px;
+  background: transparent; border: 1px solid #30363d; color: #c9d1d9;
+}
+.term-bar button:hover:not(:disabled) { background: #21262d; border-color: #8b949e; }
+.term-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column-reverse; scrollbar-color: #30363d transparent; }
+.term-lines { padding: 6px 12px 8px; }
+.term-line { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-all; }
+.term-line:hover { background: #161b22; }
+.term-mark { flex: none; width: 1ch; }
+.term-line.tx .term-mark { color: #3fb950; }
+.term-line.rx .term-mark { color: #58a6ff; }
+.term-line.rx { color: #a5d6ff; }
+.term-line.sys { color: #d29922; }

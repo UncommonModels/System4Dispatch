@@ -63,7 +63,7 @@ impl WinKind {
             WinKind::Editor => (aw - 48.0, ah - 48.0),
             WinKind::Settings => (600.0, 680.0),
             WinKind::Help => (760.0, 680.0),
-            WinKind::Monitor => (620.0, 380.0),
+            WinKind::Monitor => (720.0, 420.0),
         };
         (w.min(aw - 16.0).max(260.0), h.min(ah - 16.0).max(200.0))
     }

@@ -97,7 +97,7 @@ An arrow with a name marks a track that leaves here and carries on at the other 
 
 ## The bus monitor
 
-Press **Monitor** in the dock to open the bus monitor in a window of its own. The panel only logs bus messages while the Monitor window is open (or the setting below is on), so open it before you trigger whatever you want to watch. To keep the monitor in the Panel window instead, tick **Show bus monitor on the panel** in Settings: a *Bus monitor* box appears under the lists.
+Press **Monitor** in the dock to open the bus monitor in a window of its own. The panel only logs bus messages while the Monitor window is open (or the setting below is on), so open it before you trigger whatever you want to watch. It reads like a terminal: the newest message is at the bottom and stays in view as traffic arrives, sent messages are marked → in green, received ones ← in blue with the sender's alias, and link up/down in yellow. **Pause** freezes the view so you can read it (the log keeps filling behind it), and **Clear** empties it. To keep the monitor in the Panel window instead, tick **Show bus monitor on the panel** in Settings: a *Bus monitor* box appears under the lists.
 
 The monitor shows the last 80 messages, newest at the top, decoded into readable form:
 
