@@ -52,7 +52,7 @@ pub fn NodesView() -> Element {
                     has_cdi: n.has_cdi(),
                 })
                 .collect();
-            rows.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
+            rows.sort_by_key(|a| a.label.to_lowercase());
             rows
         })
     });
